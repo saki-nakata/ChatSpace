@@ -1,0 +1,116 @@
+name: Claude Code Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+# 同じPRに連続でプッシュされた場合、実行中のレビューを打ち切って最新の差分のみをレビューする
+concurrency:
+  group: claude-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    # フォークからのPRではシークレットが渡されないため実行しない
+    # ドラフトPRは Ready for review になるまでレビューしない
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+      id-token: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+
+      - name: Run Claude Code Review
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+
+          # PRの既存コメントを含むコンテキストを保持し、進捗をコメントに表示する
+          track_progress: true
+          # プッシュのたびにコメントが増えないよう、1つのコメントを更新し続ける
+          use_sticky_comment: true
+
+          prompt: |
+            REPO: ${{ github.repository }}
+            PR NUMBER: ${{ github.event.pull_request.number }}
+
+            このリポジトリはSlack風チャットアプリケーション（ワークスペース／チャンネル／DM／スレッド／管理者権限を持つマルチテナント構成）です。
+            以下の手順でプルリクエストをレビューしてください。
+
+            ## レビュー手順
+
+            ### ステップ1：過去のレビュー確認（重複指摘の防止）
+            1. このプルリクエストの過去のレビューコメントを確認する
+            2. 対応済みの項目は再指摘しない
+            3. 新規変更または未対応の項目のみをレビュー対象とする
+
+            ### ステップ2：変更ファイルの理解
+            - 変更の意図（新機能、バグ修正、リファクタリングなど）
+            - 影響範囲
+            - プルリクエストの説明との適合性
+
+            ### ステップ3：レビュー実施
+
+            #### プロトタイプ（HTML／CSS／JavaScript）の変更がある場合
+            - [ ] HTMLの構造が適切か（セマンティックなタグの使用）
+            - [ ] CSSの記述が整理されているか
+            - [ ] JavaScriptにセキュリティ上の問題がないか（XSSなど）
+            - [ ] コンソールログがデバッグ用途で残っていないか
+            - [ ] アクセシビリティの基本対応ができているか
+
+            #### アプリケーションコード（サーバーサイド・API・DB）の変更がある場合
+            - [ ] バグ・ロジックの誤り、エッジケースの考慮漏れがないか
+            - [ ] 入力値の検証が行われているか
+            - [ ] オーナー限定操作（ユーザーのキック、チャンネルの追加・削除、ユーザー招待）を一般メンバーが実行できてしまわないか
+            - [ ] プライベートチャンネル・DM・スレッドの内容や存在が、参加していないユーザーに閲覧・検索・通知経由で漏れないか
+            - [ ] メッセージ検索・メンション通知が、アクセス権のないチャンネル／DMの内容を結果に含めていないか
+            - [ ] 添付ファイル（画像・動画）のアップロードでファイル種別・サイズ検証やパストラバーサル対策が抜けていないか
+            - [ ] マークダウン描画箇所でXSS（スクリプト注入）が起こり得ないか
+            - [ ] N+1クエリなど、明らかなパフォーマンス上の問題がないか
+
+            #### ドキュメントの変更がある場合
+            - [ ] ドキュメント間の整合性がとれているか
+            - [ ] Markdownのフォーマットが正しいか
+            - [ ] 内容が正確か
+            - [ ] リンク切れがないか
+
+            #### ワークフローの変更がある場合
+            - [ ] YAML構文が正しいか
+            - [ ] パーミッション設定が最小権限の原則に従っているか
+            - [ ] シークレットの取り扱いが適切か
+
+            ### ステップ4：レビュー結果の出力
+
+            **問題なしと判断した項目は出力しないでください。**
+            実際に修正が必要な指摘事項、または改善提案がある項目のみ出力してください。
+
+            #### フィードバック形式
+
+            ##### 必須修正事項
+            問題点と具体的な修正方法を記載する。
+
+            ##### 推奨改善事項
+            より良い実装方法の提案。
+
+            ##### 軽微な提案
+            タイポ、表現改善など。
+
+            ## 注意事項
+            - **レビューは日本語で行ってください。**
+            - **具体的で建設的な提案をしてください。**
+            - **問題なしと判断した項目は出力しないでください。**
+            - コード行に紐づく指摘は該当行へのインラインコメントで、全体の総評はトップレベルのコメントで投稿してください。
+            - 指摘事項が一つもない場合は、その旨だけを簡潔にコメントしてください。
+
+          claude_args: |
+            --max-turns 30
+            --allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*)"
