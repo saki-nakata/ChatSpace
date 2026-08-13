@@ -99,10 +99,10 @@ terraform validate
 
 `.github/workflows/` ディレクトリが存在する場合のみ実行。
 
-actionlint が利用可能な場合は実行する:
+actionlint が利用可能かを確認し、利用できる場合のみ実行する:
 
 ```bash
-actionlint
+command -v actionlint && actionlint
 ```
 
 actionlint が利用できない場合は、`.github/workflows/` 配下の全ファイルを読み込み、以下を目視で確認すること。
@@ -111,7 +111,12 @@ actionlint が利用できない場合は、`.github/workflows/` 配下の全フ
 
 - YAML構文が正しいか
 - `permissions` が最小権限の原則に従っているか（不要な `write` 権限が付いていないか）
-- シークレットが `run:` 内やログに露出していないか（`echo` などでの出力、`env:` 経由でのスクリプトへの露出）
+- シークレットが `run:` 内やログに露出していないか（`echo` などでの標準出力への出力、成果物やアーティファクトへの書き出し）
+- **スクリプトインジェクション**が起こり得ないか
+  - PRタイトル・Issue本文・コメント・ブランチ名など、外部から自由に書き換えられる入力を `run:` 内で `${{ }}` により直接展開していないか
+  - 該当する場合、`env:` で一度変数に受けてから `"$VAR"` として参照する形になっているか
+  - 例（危険）: `run: echo "${{ github.event.pull_request.title }}"`
+  - 例（安全）: `env: { TITLE: "${{ github.event.pull_request.title }}" }` として `run: echo "$TITLE"`
 - サードパーティ製アクションのバージョンが固定されているか（タグ参照より SHA 固定が望ましい）
 - `pull_request_target` を使用している場合、PRのコードをチェックアウトして実行していないか
 - フォークからのPRでシークレットを要するジョブが実行されないようガードされているか
