@@ -1,6 +1,6 @@
 ---
 name: quality-check
-description: プロジェクト全体の品質チェック（静的解析）を実行する。ESLint・TypeScript・Checkstyle・ビルド確認・Terraform検証、およびドキュメントと実装の差異確認を行い、決められた形式でレポートする。「品質チェック」「静的解析」「lint」「ビルド確認」を求められたときに使用する。
+description: プロジェクト全体の品質チェック（静的解析）を実行する。ESLint・TypeScript・Checkstyle・ビルド確認・Terraform検証・GitHub Actionsワークフロー検証、およびドキュメントと実装の差異確認を行い、決められた形式でレポートする。「品質チェック」「静的解析」「lint」「ビルド確認」を求められたときに使用する。
 ---
 
 プロジェクト全体の品質チェック（静的解析）を実行してください。以下の手順を必ず守ること。
@@ -95,7 +95,37 @@ terraform validate
 
 ---
 
-## 5. 仕様書・要件定義書との差異確認
+## 5. GitHub Actions ワークフロー
+
+`.github/workflows/` ディレクトリが存在する場合のみ実行。
+
+actionlint が利用可能かを確認し、利用できる場合のみ実行する:
+
+```bash
+command -v actionlint && actionlint
+```
+
+actionlint が利用できない場合は、`.github/workflows/` 配下の全ファイルを読み込み、以下を目視で確認すること。
+
+**確認観点：**
+
+- YAML構文が正しいか
+- `permissions` が最小権限の原則に従っているか（不要な `write` 権限が付いていないか）
+- シークレットが `run:` 内やログに露出していないか（`echo` などでの標準出力への出力、成果物やアーティファクトへの書き出し）
+- **スクリプトインジェクション**が起こり得ないか
+  - PRタイトル・Issue本文・コメント・ブランチ名など、外部から自由に書き換えられる入力を `run:` 内で `${{ }}` により直接展開していないか
+  - 該当する場合、`env:` で一度変数に受けてから `"$VAR"` として参照する形になっているか
+  - 例（危険）: `run: echo "${{ github.event.pull_request.title }}"`
+  - 例（安全）: `env: { TITLE: "${{ github.event.pull_request.title }}" }` として `run: echo "$TITLE"`
+- サードパーティ製アクションのバージョンが固定されているか（タグ参照より SHA 固定が望ましい）
+- `pull_request_target` を使用している場合、PRのコードをチェックアウトして実行していないか
+- フォークからのPRでシークレットを要するジョブが実行されないようガードされているか
+- `timeout-minutes` が設定されているか（ジョブの暴走防止）
+- `concurrency` 設定により、不要な多重実行が発生しないようになっているか
+
+---
+
+## 6. 仕様書・要件定義書との差異確認
 
 `docs/` ディレクトリまたは `README.md` が存在する場合のみ実行すること。
 
@@ -142,6 +172,11 @@ terraform validate
 ### Terraform（fmt / validate）
 - 結果: PASS / FAIL
 - 問題があれば内容を列挙
+
+### GitHub Actions（ワークフロー）
+- 結果: PASS / FAIL / 対象外
+- チェック方法: actionlint / 目視確認
+- 問題があればファイル名と内容を列挙
 
 ### ドキュメント（docs/）との差異
 - 対象外（docs/ が存在しない場合）
