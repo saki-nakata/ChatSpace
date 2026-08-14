@@ -4,8 +4,28 @@ Slack風チャットアプリケーション。
 
 ## 現在の状況
 
-プロトタイプ着手前。技術スタック未確定のため、実装ファイルはまだ存在しない。
-スタック確定後、このファイルにビルド・テスト・Lintのコマンドを追記すること。
+プロトタイプ実装済み(feature/prototype-scaffold ブランチ)。
+技術スタック: pnpm workspace + React/Vite(フロント) + Hono/Socket.IO/Prisma(SQLite)(バックエンド)。
+詳細は [README.md](README.md) の「技術スタック」「セットアップ」を参照。
+
+未実装・簡易実装のまま残っている点:
+- メッセージ検索は DB の `contains` による部分一致(全文検索エンジンは未導入。大文字小文字は区別される)
+- 添付ファイルはマジックバイト検証まで実施しているが、ウイルススキャン等は行っていない
+- オンライン/オフラインのプレゼンス管理は単一プロセスのメモリ上で保持(水平スケール非対応)
+- 自動テストは認可クリティカルパス(messageIdスコープ・プライベートチャンネル非可視・オーナー限定操作)に絞っており、全機能を網羅していない
+
+### ビルド・テスト・Lint
+
+```bash
+pnpm install                          # 依存関係インストール
+pnpm run build                        # 全パッケージビルド(shared -> api -> web)
+pnpm run typecheck                    # 全パッケージ型チェック
+pnpm run lint                         # 全パッケージ ESLint(警告0件が必須)
+pnpm run test                         # apps/api の認可テスト(vitest、専用DBを自動マイグレーション)
+pnpm run dev                          # API(:4000) + Web(:5173) 同時起動
+pnpm --filter @chatspace/api run db:migrate   # Prismaマイグレーション
+pnpm run db:seed                      # 初期データ投入(alice/bob/carol, password123)
+```
 
 ## 機能要件
 

@@ -1,0 +1,55 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  @apply bg-slate-50 text-slate-900 antialiased;
+}
+
+/* Markdown 描画領域の見た目調整 */
+.msg-body p {
+  @apply mb-1 last:mb-0;
+}
+.msg-body a {
+  @apply text-brand-600 underline hover:text-brand-700;
+}
+.msg-body code {
+  @apply rounded bg-slate-200 px-1 py-0.5 font-mono text-[0.85em];
+}
+.msg-body pre {
+  @apply my-1 overflow-x-auto rounded-md bg-slate-900 p-3 text-slate-100;
+}
+.msg-body pre code {
+  @apply bg-transparent p-0 text-inherit;
+}
+.msg-body ul {
+  @apply my-1 list-disc pl-5;
+}
+.msg-body ol {
+  @apply my-1 list-decimal pl-5;
+}
+.msg-body blockquote {
+  @apply my-1 border-l-4 border-slate-300 pl-3 text-slate-600;
+}
+.msg-body h1,
+.msg-body h2,
+.msg-body h3,
+.msg-body h4 {
+  @apply mb-1 mt-2 font-bold;
+}
+.msg-body img {
+  @apply my-1 max-h-80 rounded-md;
+}
+.msg-body table {
+  @apply my-1 border-collapse text-sm;
+}
+.msg-body th,
+.msg-body td {
+  @apply border border-slate-300 px-2 py-1;
+}

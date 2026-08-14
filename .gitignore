@@ -4,3 +4,27 @@
 node_modules/
 dist/
 build/
+
+# Prisma / SQLite(誤ったカレントディレクトリでコマンドを実行した際にできる
+# 二重ネストの prisma/prisma/ も含めて、階層を問わず除外する)
+apps/api/prisma/**/*.db
+apps/api/prisma/**/*.db-journal
+apps/api/prisma/migrations/dev/
+
+# アップロードされた添付ファイル（実体）
+apps/api/uploads/*
+!apps/api/uploads/.gitkeep
+
+# テスト実行時に生成される一時ファイル
+apps/api/test-uploads/
+
+# 削除待ちファイル(削除はユーザーが実施、Claudeは直接rmしない)
+delete/
+**/delete/
+
+# 動作確認で使用したPlaywrightのスクリーンショット・キャッシュ(リポジトリ直下)
+/*.png
+.playwright-mcp/
+
+# Claude Code のローカル設定・スキル
+.claude/
