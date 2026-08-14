@@ -14,6 +14,11 @@ export const authRoutes = new Hono<AppEnv>();
 
 const COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24 * 7; // 7日
 
+// ユーザーが存在しない場合に bcrypt.compare をスキップすると、存在有無で応答時間に
+// 差が出てユーザーID列挙(タイミング攻撃)を許してしまう。存在しない場合もこのダミー
+// ハッシュと比較することで、常に bcrypt.compare を実行し処理時間を揃える。
+const DUMMY_PASSWORD_HASH = await hashPassword("timing-attack-mitigation-dummy-password");
+
 function setAuthCookie(c: Parameters<typeof setCookie>[0], token: string) {
   setCookie(c, AUTH_COOKIE_NAME, token, {
     httpOnly: true,
@@ -58,7 +63,8 @@ authRoutes.post("/login", async (c) => {
   const { userId, password } = parsed.data;
 
   const user = await prisma.user.findUnique({ where: { userId } });
-  if (!user || !(await verifyPassword(password, user.passwordHash))) {
+  const isValidPassword = await verifyPassword(password, user?.passwordHash ?? DUMMY_PASSWORD_HASH);
+  if (!user || !isValidPassword) {
     throw BadRequest("ユーザーIDまたはパスワードが正しくありません。");
   }
 

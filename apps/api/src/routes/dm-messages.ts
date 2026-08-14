@@ -11,9 +11,9 @@ export const dmMessageRoutes = new Hono<AppEnv>();
 dmMessageRoutes.use("*", requireAuth);
 
 dmMessageRoutes.get("/", async (c) => {
-  const { dmId } = routeParams<{ workspaceId: string; dmId: string }>(c);
+  const { workspaceId, dmId } = routeParams<{ workspaceId: string; dmId: string }>(c);
   const userId = c.get("userId");
-  await requireDMAccess(dmId, userId);
+  await requireDMAccess(dmId, userId, workspaceId);
   const before = c.req.query("before");
   const limit = c.req.query("limit");
   const messages = await messagesService.listMessages({
@@ -32,7 +32,7 @@ dmMessageRoutes.get("/:messageId/context", async (c) => {
     messageId: string;
   }>(c);
   const userId = c.get("userId");
-  await requireDMAccess(dmId, userId);
+  await requireDMAccess(dmId, userId, workspaceId);
   const context = await messagesService.getMessageContext({ dmId, workspaceId }, messageId, userId);
   return c.json(context);
 });
@@ -44,7 +44,7 @@ dmMessageRoutes.get("/:messageId/replies", async (c) => {
     messageId: string;
   }>(c);
   const userId = c.get("userId");
-  await requireDMAccess(dmId, userId);
+  await requireDMAccess(dmId, userId, workspaceId);
   const replies = await messagesService.listThreadReplies({ dmId, workspaceId }, messageId, userId);
   return c.json({ replies });
 });
@@ -52,7 +52,7 @@ dmMessageRoutes.get("/:messageId/replies", async (c) => {
 dmMessageRoutes.post("/", async (c) => {
   const { workspaceId, dmId } = routeParams<{ workspaceId: string; dmId: string }>(c);
   const userId = c.get("userId");
-  await requireDMAccess(dmId, userId);
+  await requireDMAccess(dmId, userId, workspaceId);
 
   const body = await c.req.json().catch(() => null);
   const parsed = createMessageSchema.safeParse(body);
@@ -69,7 +69,7 @@ dmMessageRoutes.post("/", async (c) => {
 dmMessageRoutes.patch("/:messageId", async (c) => {
   const { workspaceId, dmId, messageId } = routeParams<{ workspaceId: string; dmId: string; messageId: string }>(c);
   const userId = c.get("userId");
-  await requireDMAccess(dmId, userId);
+  await requireDMAccess(dmId, userId, workspaceId);
 
   const body = await c.req.json().catch(() => null);
   const parsed = updateMessageSchema.safeParse(body);
@@ -86,7 +86,7 @@ dmMessageRoutes.patch("/:messageId", async (c) => {
 dmMessageRoutes.delete("/:messageId", async (c) => {
   const { workspaceId, dmId, messageId } = routeParams<{ workspaceId: string; dmId: string; messageId: string }>(c);
   const userId = c.get("userId");
-  await requireDMAccess(dmId, userId);
+  await requireDMAccess(dmId, userId, workspaceId);
   await messagesService.deleteMessage(c.get("io"), { dmId, workspaceId }, { messageId, requesterId: userId });
   return c.body(null, 204);
 });
@@ -94,7 +94,7 @@ dmMessageRoutes.delete("/:messageId", async (c) => {
 dmMessageRoutes.post("/:messageId/reactions", async (c) => {
   const { workspaceId, dmId, messageId } = routeParams<{ workspaceId: string; dmId: string; messageId: string }>(c);
   const userId = c.get("userId");
-  await requireDMAccess(dmId, userId);
+  await requireDMAccess(dmId, userId, workspaceId);
 
   const body = await c.req.json().catch(() => null);
   const parsed = toggleReactionSchema.safeParse(body);

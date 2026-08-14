@@ -109,9 +109,9 @@ channelRoutes.get("/", async (c) => {
 });
 
 channelRoutes.post("/:channelId/read", async (c) => {
-  const { channelId } = routeParams<{ workspaceId: string; channelId: string }>(c);
+  const { workspaceId, channelId } = routeParams<{ workspaceId: string; channelId: string }>(c);
   const userId = c.get("userId");
-  const { membership } = await requireChannelMember(channelId, userId);
+  const { membership } = await requireChannelMember(channelId, userId, workspaceId);
   await prisma.channelMember.update({
     where: { id: membership.id },
     data: { lastReadAt: new Date() },
@@ -195,7 +195,7 @@ channelRoutes.delete("/:channelId/members/:targetUserId", async (c) => {
     targetUserId: string;
   }>(c);
   const userId = c.get("userId");
-  await requireChannelMember(channelId, userId);
+  await requireChannelMember(channelId, userId, workspaceId);
 
   if (targetUserId !== userId) {
     await requireWorkspaceOwner(workspaceId, userId);
@@ -212,8 +212,8 @@ channelRoutes.delete("/:channelId/members/:targetUserId", async (c) => {
 });
 
 channelRoutes.get("/:channelId/members", async (c) => {
-  const { channelId } = c.req.param();
-  await requireChannelMember(channelId, c.get("userId"));
+  const { workspaceId, channelId } = routeParams<{ workspaceId: string; channelId: string }>(c);
+  await requireChannelMember(channelId, c.get("userId"), workspaceId);
   const members = await prisma.channelMember.findMany({
     where: { channelId },
     include: { user: true },

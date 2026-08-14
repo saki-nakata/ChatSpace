@@ -43,9 +43,6 @@ body {
 .msg-body h4 {
   @apply mb-1 mt-2 font-bold;
 }
-.msg-body img {
-  @apply my-1 max-h-80 rounded-md;
-}
 .msg-body table {
   @apply my-1 border-collapse text-sm;
 }

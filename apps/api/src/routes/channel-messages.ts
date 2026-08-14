@@ -11,9 +11,9 @@ export const channelMessageRoutes = new Hono<AppEnv>();
 channelMessageRoutes.use("*", requireAuth);
 
 channelMessageRoutes.get("/", async (c) => {
-  const { channelId } = routeParams<{ workspaceId: string; channelId: string }>(c);
+  const { workspaceId, channelId } = routeParams<{ workspaceId: string; channelId: string }>(c);
   const userId = c.get("userId");
-  await requireChannelMember(channelId, userId);
+  await requireChannelMember(channelId, userId, workspaceId);
   const before = c.req.query("before");
   const limit = c.req.query("limit");
   const messages = await messagesService.listMessages({
@@ -32,7 +32,7 @@ channelMessageRoutes.get("/:messageId/context", async (c) => {
     messageId: string;
   }>(c);
   const userId = c.get("userId");
-  await requireChannelMember(channelId, userId);
+  await requireChannelMember(channelId, userId, workspaceId);
   const context = await messagesService.getMessageContext({ channelId, workspaceId }, messageId, userId);
   return c.json(context);
 });
@@ -44,7 +44,7 @@ channelMessageRoutes.get("/:messageId/replies", async (c) => {
     messageId: string;
   }>(c);
   const userId = c.get("userId");
-  await requireChannelMember(channelId, userId);
+  await requireChannelMember(channelId, userId, workspaceId);
   const replies = await messagesService.listThreadReplies({ channelId, workspaceId }, messageId, userId);
   return c.json({ replies });
 });
@@ -52,7 +52,7 @@ channelMessageRoutes.get("/:messageId/replies", async (c) => {
 channelMessageRoutes.post("/", async (c) => {
   const { workspaceId, channelId } = routeParams<{ workspaceId: string; channelId: string }>(c);
   const userId = c.get("userId");
-  await requireChannelMember(channelId, userId);
+  await requireChannelMember(channelId, userId, workspaceId);
 
   const body = await c.req.json().catch(() => null);
   const parsed = createMessageSchema.safeParse(body);
@@ -73,7 +73,7 @@ channelMessageRoutes.patch("/:messageId", async (c) => {
     messageId: string;
   }>(c);
   const userId = c.get("userId");
-  await requireChannelMember(channelId, userId);
+  await requireChannelMember(channelId, userId, workspaceId);
 
   const body = await c.req.json().catch(() => null);
   const parsed = updateMessageSchema.safeParse(body);
@@ -94,7 +94,7 @@ channelMessageRoutes.delete("/:messageId", async (c) => {
     messageId: string;
   }>(c);
   const userId = c.get("userId");
-  await requireChannelMember(channelId, userId);
+  await requireChannelMember(channelId, userId, workspaceId);
   await messagesService.deleteMessage(c.get("io"), { channelId, workspaceId }, { messageId, requesterId: userId });
   return c.body(null, 204);
 });
@@ -106,7 +106,7 @@ channelMessageRoutes.post("/:messageId/reactions", async (c) => {
     messageId: string;
   }>(c);
   const userId = c.get("userId");
-  await requireChannelMember(channelId, userId);
+  await requireChannelMember(channelId, userId, workspaceId);
 
   const body = await c.req.json().catch(() => null);
   const parsed = toggleReactionSchema.safeParse(body);

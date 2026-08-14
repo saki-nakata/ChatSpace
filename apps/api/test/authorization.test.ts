@@ -144,6 +144,22 @@ describe("認可: プライベートチャンネルの非可視性", () => {
   });
 });
 
+describe("認可: URLのworkspaceIdとチャンネル/DMの実際の所属の一貫性", () => {
+  it("正しいチャンネルのメンバーでも、URLのworkspaceIdが別ワークスペースだと404になる", async () => {
+    const owner = await createTestUser("owner");
+    const workspaceA = await createWorkspaceWithOwner(owner);
+    const workspaceB = await createWorkspaceWithOwner(owner);
+    const channel = await createChannel({ workspaceId: workspaceA.id, type: "PUBLIC", memberIds: [owner.id] });
+
+    const ownerCookie = await authCookieFor(owner.id);
+    // channel は workspaceA 所属だが、URL には workspaceB を指定する
+    const res = await jsonRequest(`/workspaces/${workspaceB.id}/channels/${channel.id}/messages`, {
+      cookie: ownerCookie,
+    });
+    expect(res.status).toBe(404);
+  });
+});
+
 describe("認可: オーナー限定操作", () => {
   it("一般メンバーはチャンネルを作成できない(403)", async () => {
     const owner = await createTestUser("owner");

@@ -104,9 +104,9 @@ dmRoutes.post("/", async (c) => {
 });
 
 dmRoutes.post("/:dmId/read", async (c) => {
-  const { dmId } = c.req.param();
+  const { workspaceId, dmId } = routeParams<{ workspaceId: string; dmId: string }>(c);
   const userId = c.get("userId");
-  const dm = await requireDMAccess(dmId, userId);
+  const dm = await requireDMAccess(dmId, userId, workspaceId);
 
   await prisma.dMThread.update({
     where: { id: dmId },

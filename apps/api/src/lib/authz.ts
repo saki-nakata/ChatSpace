@@ -29,9 +29,15 @@ export async function requireWorkspaceOwner(workspaceId: string, userId: string)
   return membership;
 }
 
-export async function requireChannelMember(channelId: string, userId: string) {
+/**
+ * workspaceId を渡した場合、チャンネルの実際の所属ワークスペースと一致するかも検証する。
+ * 現状これを省いても権限外アクセスには繋がらない(チャンネル単体のメンバーシップで
+ * 判定済みのため)が、URLの workspaceId とチャンネルの所属が食い違うリクエストを
+ * 素通りさせないための一貫性チェック(将来の実装ミスに対する防御層)として設ける。
+ */
+export async function requireChannelMember(channelId: string, userId: string, workspaceId?: string) {
   const channel = await prisma.channel.findUnique({ where: { id: channelId } });
-  if (!channel) {
+  if (!channel || (workspaceId && channel.workspaceId !== workspaceId)) {
     throw NotFound("チャンネルが見つかりません。");
   }
   const membership = await prisma.channelMember.findUnique({
@@ -45,9 +51,14 @@ export async function requireChannelMember(channelId: string, userId: string) {
   return { channel, membership };
 }
 
-export async function requireDMAccess(dmId: string, userId: string) {
+/** workspaceId を渡した場合、DMの実際の所属ワークスペースと一致するかも検証する(上記と同趣旨) */
+export async function requireDMAccess(dmId: string, userId: string, workspaceId?: string) {
   const dm = await prisma.dMThread.findUnique({ where: { id: dmId } });
-  if (!dm || (dm.userAId !== userId && dm.userBId !== userId)) {
+  if (
+    !dm ||
+    (dm.userAId !== userId && dm.userBId !== userId) ||
+    (workspaceId && dm.workspaceId !== workspaceId)
+  ) {
     throw NotFound("DMが見つかりません。");
   }
   return dm;

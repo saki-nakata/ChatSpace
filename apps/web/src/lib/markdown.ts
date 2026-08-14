@@ -12,6 +12,11 @@ DOMPurify.addHook("afterSanitizeAttributes", (node) => {
   }
 });
 
+// img タグは意図的に許可しない。Markdown本文中に外部URLの画像(![alt](url))を
+// 埋め込めてしまうと、DOMPurifyではスクリプト実行を伴わない「トラッキングピクセル」
+// (画像取得リクエストを使った閲覧者のIPアドレス・閲覧タイミングの収集)を防げないため。
+// 実際の画像・動画添付は Markdown 経由ではなく、自ドメインの /uploads/ API から配信される
+// 別経路(MessageItem の attachments 表示)で行われるため、img を外しても添付機能自体には影響しない。
 const SANITIZE_CONFIG: Config = {
   ALLOWED_TAGS: [
     "p",
@@ -39,9 +44,8 @@ const SANITIZE_CONFIG: Config = {
     "th",
     "td",
     "span",
-    "img",
   ],
-  ALLOWED_ATTR: ["href", "title", "class", "target", "rel", "data-mention", "src", "alt"],
+  ALLOWED_ATTR: ["href", "title", "class", "target", "rel", "data-mention"],
 };
 
 /**
