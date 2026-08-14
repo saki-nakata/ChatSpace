@@ -1,0 +1,29 @@
+{
+  "name": "chatspace",
+  "private": true,
+  "version": "0.1.0",
+  "packageManager": "pnpm@11.9.0",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "pnpm --parallel --filter ./apps/* run dev",
+    "dev:api": "pnpm --filter @chatspace/api run dev",
+    "dev:web": "pnpm --filter @chatspace/web run dev",
+    "build": "pnpm --filter @chatspace/shared run build && pnpm --filter @chatspace/api run build && pnpm --filter @chatspace/web run build",
+    "lint": "pnpm -r run lint",
+    "typecheck": "pnpm -r run typecheck",
+    "test": "pnpm --filter @chatspace/api run test",
+    "db:migrate": "pnpm --filter @chatspace/api run db:migrate",
+    "db:seed": "pnpm --filter @chatspace/api run db:seed"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.8.1",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "eslint-plugin-react-refresh": "^0.5.4",
+    "globals": "^17.11.0",
+    "typescript-eslint": "^8.67.0"
+  }
+}

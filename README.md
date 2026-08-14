@@ -17,17 +17,82 @@ Slack風のチャットアプリケーション。
 
 ボイスチャンネルは対象外とする。
 
+上記の要件に加えて、実際の使用感を確認しながら以下も実装している。
+
+- メンションの入力補完(`@`入力で候補表示)
+- 未読区切り線、過去ログの遡り読み込み(上スクロール)
+- 検索結果から該当メッセージへのジャンプ・ハイライト(スレッド返信もジャンプ対象)
+- タイピングインジケーター、オンライン/オフラインのプレゼンス表示
+- ブラウザ通知・未読件数のタブタイトル表示
+- スレッド返信の通知、ワークスペースからの自主退出
+
 詳細な要件および設計上の注意点は [CLAUDE.md](CLAUDE.md) を参照。
 
 ## 開発
 
 ### 技術スタック
 
-未確定。確定後にセットアップ手順を追記する。
+pnpm workspace によるモノレポ構成。
+
+| 分類 | 技術 |
+| --- | --- |
+| フロントエンド | React + Vite + TypeScript, React Router, Zustand, Tailwind CSS, Socket.IO Client, marked + DOMPurify(Markdown描画・XSS対策) |
+| バックエンド | Hono + @hono/node-server, Socket.IO, Prisma + SQLite, jose(JWT), bcryptjs |
+| 共有 | `packages/shared`(zod スキーマ・DTO型・Socket.IOイベント名を front/back で共有) |
+
+```
+apps/
+  api/    Hono製REST API + Socket.IOサーバー(ポート 4000)
+  web/    React製フロントエンド(ポート 5173)
+packages/
+  shared/ zodスキーマ・DTO型・Socket.IOイベント名の共有パッケージ
+```
 
 ### パッケージマネージャ
 
 **pnpm** を使用する（npm / yarn は使用しない）。
+
+### セットアップ
+
+```bash
+pnpm install
+
+# apps/api/.env と apps/web/.env を用意する(.env.sample を参照)
+cp .env.sample apps/api/.env    # DATABASE_URL / JWT_SECRET などを編集
+cp .env.sample apps/web/.env    # VITE_API_URL を編集
+
+# DBマイグレーション + 初期データ投入
+pnpm --filter @chatspace/api run db:migrate
+pnpm run db:seed
+```
+
+シード投入後、以下のアカウントでログインできる(パスワードは共通で `password123`)。
+
+| userId | 表示名 | 備考 |
+| --- | --- | --- |
+| alice | Alice | Sample Workspace のオーナー |
+| bob | Bob | メンバー |
+| carol | Carol | メンバー |
+
+### 起動
+
+```bash
+pnpm run dev        # API(:4000) と Web(:5173) を同時起動
+# もしくは個別に
+pnpm run dev:api
+pnpm run dev:web
+```
+
+起動後 http://localhost:5173 にアクセスする。
+
+### ビルド・型チェック・Lint・テスト
+
+```bash
+pnpm run build       # shared -> api -> web の順にビルド
+pnpm run typecheck   # 各パッケージの tsc --noEmit
+pnpm run lint        # ESLint(apps/api, apps/web。警告0件が必須)
+pnpm run test        # apps/api の認可テスト(vitest)。専用DB(prisma/test.db)へ自動でマイグレーションを適用する
+```
 
 ### コードレビュー
 
