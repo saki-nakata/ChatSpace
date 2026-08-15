@@ -11,7 +11,7 @@ Node.js/Hono/Socket.IO/Prisma/SQLite のプロトタイプを土台に、Java/Sp
 | [フェーズ-2](phase-2.md) | 技術検証スパイク(pg_trgm/pg_bigm調査、STOMP基本疎通確認、Renderドキュメント調査) | ✅ 完了 |
 | [フェーズ-1](phase-1.md) | ドキュメント整備(`docs/`配下19ファイル) | ✅ 完了 |
 | [フェーズ0](phase0.md) | リポジトリ雛形(`apps/api-java`新設、Spotless/ArchUnit、docker-compose、Flywayベースライン、CI新設) | ✅ 完了 |
-| [フェーズ1](phase1.md) | 認証・データモデル・認可サービス骨格・シード | 未着手 |
+| [フェーズ1](phase1.md) | 認証・データモデル・認可サービス骨格・シード | ✅ 完了 |
 | [フェーズ2](phase2.md) | ワークスペース/チャンネル/DM の CRUD(メッセージ抜き) | 未着手 |
 | [フェーズ3](phase3.md) | メッセージ(チャンネル/DM共通)・リアクション・MessageScopeGuard | 未着手 |
 | [フェーズ4](phase4.md) | リアルタイム(STOMP、SUBSCRIBE認可、SEND default-deny、キック強制切断) | 未着手 |

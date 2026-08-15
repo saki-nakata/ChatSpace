@@ -34,6 +34,8 @@ chatspace:
   jwt-secret: ${JWT_SECRET:}
   web-origin: ${WEB_ORIGIN:http://localhost:5173}
   upload-dir: ${UPLOAD_DIR:./uploads}
+  # chatspace_token CookieのSecure属性。ローカル開発(http)ではfalse、本番(https)ではtrueにする(認証機能定義書§6)
+  cookie-secure: ${COOKIE_SECURE:false}
   # 添付ファイルサイズ上限(25MB=26214400バイト)。spring.servlet.multipart.max-file-size と同じ値にすること
   # (max-request-sizeとは異なり26MBにしない。多層防御の二段目としてサービス層のMultipartFile#getSize()と突き合わせる、機能定義書§3.3)
   max-attachment-size-bytes: 26214400
