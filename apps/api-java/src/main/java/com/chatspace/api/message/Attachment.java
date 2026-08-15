@@ -99,4 +99,9 @@ public class Attachment {
   public Instant getCreatedAt() {
     return createdAt;
   }
+
+  /** メッセージ投稿時、未使用の添付ファイルを紐付ける(メッセージング機能定義書§6.4)。 */
+  public void attachToMessage(UUID messageId) {
+    this.messageId = messageId;
+  }
 }

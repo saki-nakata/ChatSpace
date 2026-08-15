@@ -113,4 +113,23 @@ public class Message {
   public Instant getDeletedAt() {
     return deletedAt;
   }
+
+  public UUID getParentId() {
+    return parent == null ? null : parent.getId();
+  }
+
+  public boolean isDeleted() {
+    return deletedAt != null;
+  }
+
+  public void edit(String newBody, Instant editedAt) {
+    this.body = newBody;
+    this.editedAt = editedAt;
+    this.updatedAt = editedAt;
+  }
+
+  public void markDeleted(Instant deletedAt) {
+    this.deletedAt = deletedAt;
+    this.updatedAt = deletedAt;
+  }
 }

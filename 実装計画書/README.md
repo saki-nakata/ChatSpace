@@ -13,7 +13,7 @@ Node.js/Hono/Socket.IO/Prisma/SQLite のプロトタイプを土台に、Java/Sp
 | [フェーズ0](phase0.md) | リポジトリ雛形(`apps/api-java`新設、Spotless/ArchUnit、docker-compose、Flywayベースライン、CI新設) | ✅ 完了 |
 | [フェーズ1](phase1.md) | 認証・データモデル・認可サービス骨格・シード | ✅ 完了 |
 | [フェーズ2](phase2.md) | ワークスペース/チャンネル/DM の CRUD(メッセージ抜き) | ✅ 完了 |
-| [フェーズ3](phase3.md) | メッセージ(チャンネル/DM共通)・リアクション・MessageScopeGuard | 未着手 |
+| [フェーズ3](phase3.md) | メッセージ(チャンネル/DM共通)・リアクション・MessageScopeGuard | ✅ 完了 |
 | [フェーズ4](phase4.md) | リアルタイム(STOMP、SUBSCRIBE認可、SEND default-deny、キック強制切断) | 未着手 |
 | [フェーズ5](phase5.md) | メンション・通知(スコープ再チェック含む) | 未着手 |
 | [フェーズ6](phase6.md) | 検索(pg_trgm、フェーズ3以降と並行可) | 未着手 |
