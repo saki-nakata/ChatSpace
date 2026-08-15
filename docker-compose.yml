@@ -1,0 +1,23 @@
+# ローカル開発用。フェーズ0-12は単一インスタンス前提のためPostgreSQLのみを起動する。
+# 水平スケール対応(フェーズ13・任意)を実施する場合、Redis・RabbitMQ・共有アップロードボリュームを追記する
+# (詳細は .plans/java-spring-boot-redesign.md「水平スケール対応(フェーズ13・任意)」章、docs/インフラ構成書.md参照)。
+services:
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: chatspace
+      POSTGRES_USER: chatspace
+      POSTGRES_PASSWORD: chatspace
+    ports:
+      - "5432:5432"
+    volumes:
+      - chatspace-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U chatspace -d chatspace"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  chatspace-postgres-data:

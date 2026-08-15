@@ -1,0 +1,39 @@
+spring:
+  application:
+    name: chatspace-api
+  datasource:
+    url: ${DATABASE_URL_JDBC:jdbc:postgresql://localhost:5432/chatspace}
+    username: ${DATABASE_USERNAME:chatspace}
+    password: ${DATABASE_PASSWORD:chatspace}
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: none # スキーマ変更は必ずFlywayマイグレーション経由(計画書§2)
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+  flyway:
+    enabled: true
+  servlet:
+    multipart:
+      max-file-size: 25MB
+      max-request-size: 26MB # multipart境界・ヘッダー分の余裕を持たせる(機能定義書のレビュー指摘反映)
+
+server:
+  port: ${PORT:8080}
+
+management:
+  endpoints:
+    web:
+      base-path: / # 認可設計の `/health` (permitAll対象) を素のパスにするため既定の /actuator を外す
+      exposure:
+        include: health
+
+chatspace:
+  jwt-secret: ${JWT_SECRET:}
+  web-origin: ${WEB_ORIGIN:http://localhost:5173}
+  upload-dir: ${UPLOAD_DIR:./uploads}
+  # 添付ファイルサイズ上限(25MB=26214400バイト)。spring.servlet.multipart.max-file-size と同じ値にすること
+  # (max-request-sizeとは異なり26MBにしない。多層防御の二段目としてサービス層のMultipartFile#getSize()と突き合わせる、機能定義書§3.3)
+  max-attachment-size-bytes: 26214400

@@ -28,3 +28,10 @@ delete/
 
 # Claude Code のローカル設定・スキル
 .claude/
+
+# Claude Code のプランモードで作成したローカル参照用ファイル(Git管理外)。
+# 実装計画書/ は TripDiary と同様に Git 管理対象とするため、ここには含めない。
+.plans/
+
+# Gradle のビルドキャッシュ(build/ は上部で除外済み)
+.gradle/

@@ -1,0 +1,56 @@
+name: Frontend CI (apps/web-next)
+
+# apps/web-next はフェーズ9で新設するため、このワークフローはそれまで発火しない
+# (path フィルタが一致するファイルが存在しないため)。計画書のフェーズ0で新設だけ済ませておく。
+on:
+  pull_request:
+    paths:
+      - "apps/web-next/**"
+      - ".github/workflows/frontend-next-ci.yml"
+  push:
+    branches: [main]
+    paths:
+      - "apps/web-next/**"
+      - ".github/workflows/frontend-next-ci.yml"
+
+concurrency:
+  group: frontend-next-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: apps/web-next
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: "pnpm"
+          cache-dependency-path: apps/web-next/pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # pnpm run <script> はスクリプト名を1つしか取らないため個別に実行する
+      # (計画書のレビュー指摘: typecheck lint build と空白区切りで並べると動作しない)
+      - name: Type check
+        run: pnpm --filter @chatspace/web-next run typecheck
+
+      - name: Lint (warnings not allowed)
+        run: pnpm --filter @chatspace/web-next run lint
+
+      - name: Build
+        run: pnpm --filter @chatspace/web-next run build
