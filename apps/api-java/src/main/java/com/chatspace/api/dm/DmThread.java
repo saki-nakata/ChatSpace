@@ -78,4 +78,13 @@ public class DmThread {
   public Instant getLastReadAtB() {
     return lastReadAtB;
   }
+
+  /** {@code userId} が userA/userB のどちらかに応じて、該当する既読位置を更新する(DM機能定義書§3.3)。 */
+  public void markRead(UUID userId, Instant readAt) {
+    if (userId.equals(userAId)) {
+      this.lastReadAtA = readAt;
+    } else if (userId.equals(userBId)) {
+      this.lastReadAtB = readAt;
+    }
+  }
 }

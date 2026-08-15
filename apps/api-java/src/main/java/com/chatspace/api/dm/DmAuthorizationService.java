@@ -1,23 +1,47 @@
 package com.chatspace.api.dm;
 
+import com.chatspace.api.common.NotFoundException;
+import com.chatspace.api.workspace.WorkspaceMemberRepository;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
 
 /**
  * DMアクセスの認可チェックを担う(計画書§3、404-not-403方針)。
  *
- * <p>フェーズ1時点ではメソッドシグネチャのみ(骨格)。本体実装はフェーズ2で完成させる。
+ * <p>DM機能定義書§6.2の通り、DM参加者チェックに加えて**呼び出し時点で有効なWorkspaceMemberであること**をANDで検証する
+ * (ワークスペースキック後もDM参加者情報自体は消えないため、参加者チェックのみでは不十分な、実在するギャップへの対応)。
  */
 @Service
 public class DmAuthorizationService {
 
+  private final DmThreadRepository dmThreadRepository;
+  private final WorkspaceMemberRepository workspaceMemberRepository;
+
+  public DmAuthorizationService(
+      DmThreadRepository dmThreadRepository, WorkspaceMemberRepository workspaceMemberRepository) {
+    this.dmThreadRepository = dmThreadRepository;
+    this.workspaceMemberRepository = workspaceMemberRepository;
+  }
+
   /**
-   * 呼び出し元ユーザーがDM参加者(userAId/userBId)であることに加え、現在有効な {@code WorkspaceMember}
-   * であることも必須条件として検証する(ワークスペースキック後もDM参加者情報自体は消えないため、参加者チェックのみでは不十分。 DB設計書§3.6設計上の注意点)。いずれか欠けても
-   * {@code NotFoundException}(404)。{@code workspaceIdOrNull}
-   * が指定された場合はconfused-deputy対策としてDMスレッドの実所属ワークスペースとの一致も確認する。
+   * DM参加者チェックと現在有効なWorkspaceMemberチェックの両方を満たさない限り成功させない。いずれか一方でも欠ける場合は
+   * 同一の404(DM機能定義書§6.2、ワークスペースメンバーシップ切れであることを403で区別しない)。
    */
-  public void requireDmAccess(UUID dmId, UUID userId, UUID workspaceIdOrNull) {
-    throw new UnsupportedOperationException("フェーズ2で実装");
+  public DmThread requireDmAccess(UUID dmId, UUID userId, UUID workspaceIdOrNull) {
+    DmThread dm = dmThreadRepository.findById(dmId).orElseThrow(this::notFound);
+    if (workspaceIdOrNull != null && !dm.getWorkspaceId().equals(workspaceIdOrNull)) {
+      throw notFound();
+    }
+    if (!dm.getUserAId().equals(userId) && !dm.getUserBId().equals(userId)) {
+      throw notFound();
+    }
+    if (!workspaceMemberRepository.existsByWorkspaceIdAndUserId(dm.getWorkspaceId(), userId)) {
+      throw notFound();
+    }
+    return dm;
+  }
+
+  private NotFoundException notFound() {
+    return new NotFoundException("DMが見つかりません。");
   }
 }

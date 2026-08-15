@@ -7,6 +7,7 @@ spring:
     enabled: true
 
 chatspace:
-  jwt-secret: test-only-secret
+  # HS256は最低256bit(32バイト)の鍵長が必要(JwtService参照)
+  jwt-secret: test-only-secret-must-be-at-least-32-bytes-long
   web-origin: http://localhost:5173
   upload-dir: ./build/test-uploads

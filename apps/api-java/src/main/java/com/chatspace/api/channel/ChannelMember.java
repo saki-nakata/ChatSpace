@@ -58,4 +58,8 @@ public class ChannelMember {
   public Instant getLastReadAt() {
     return lastReadAt;
   }
+
+  public void markRead(Instant readAt) {
+    this.lastReadAt = readAt;
+  }
 }
