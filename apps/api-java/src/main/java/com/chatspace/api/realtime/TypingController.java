@@ -37,7 +37,7 @@ public class TypingController {
     this.messagingTemplate = messagingTemplate;
   }
 
-  @MessageMapping("/channels.{channelId}.typing")
+  @MessageMapping(StompDestinations.CHANNEL_TYPING_MAPPING)
   public void channelTyping(@DestinationVariable UUID channelId, Principal principal) {
     UUID userId = UUID.fromString(principal.getName());
     channelAuthorizationService.requireChannelMember(channelId, userId, null);
@@ -46,7 +46,7 @@ public class TypingController {
         new RealtimeEvent("TYPING_UPDATE", new TypingPayload(userId, channelId, null)));
   }
 
-  @MessageMapping("/dms.{dmId}.typing")
+  @MessageMapping(StompDestinations.DM_TYPING_MAPPING)
   public void dmTyping(@DestinationVariable UUID dmId, Principal principal) {
     UUID userId = UUID.fromString(principal.getName());
     dmAuthorizationService.requireDmAccess(dmId, userId, null);
