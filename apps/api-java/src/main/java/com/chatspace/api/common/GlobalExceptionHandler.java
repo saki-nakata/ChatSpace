@@ -6,6 +6,7 @@ import org.springframework.security.authentication.AuthenticationCredentialsNotF
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
 
 /** 共通例外階層をHTTPステータス・エラーボディへ変換する。 */
 @RestControllerAdvice
@@ -39,6 +40,14 @@ public class GlobalExceptionHandler {
             .map(error -> error.getDefaultMessage())
             .orElse("入力内容を確認してください。");
     return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(new ErrorResponse(message));
+  }
+
+  /** multipart解析エンジンのレベルでの上限超過(添付ファイル機能定義書§3.3、多層防御の一段目)。 */
+  @ExceptionHandler(MaxUploadSizeExceededException.class)
+  public ResponseEntity<ErrorResponse> handleMaxUploadSizeExceeded(
+      MaxUploadSizeExceededException ex) {
+    return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+        .body(new ErrorResponse("ファイルサイズは25MB以下にしてください。"));
   }
 
   @ExceptionHandler(AuthenticationCredentialsNotFoundException.class)

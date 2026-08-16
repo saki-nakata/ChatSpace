@@ -14,6 +14,8 @@ apps/api/prisma/migrations/dev/
 # アップロードされた添付ファイル（実体）
 apps/api/uploads/*
 !apps/api/uploads/.gitkeep
+apps/api-java/uploads/*
+!apps/api-java/uploads/.gitkeep
 
 # テスト実行時に生成される一時ファイル
 apps/api/test-uploads/
