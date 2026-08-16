@@ -1,0 +1,54 @@
+name: Backend CI (apps/api-java)
+
+on:
+  pull_request:
+    paths:
+      - "apps/api-java/**"
+      - "docker-compose.yml"
+      - ".github/workflows/backend-ci.yml"
+  push:
+    branches: [main]
+    paths:
+      - "apps/api-java/**"
+      - "docker-compose.yml"
+      - ".github/workflows/backend-ci.yml"
+
+concurrency:
+  group: backend-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    # Testcontainers を使うテストが増えると実行時間が読みにくくなるため上限を設ける(quality-checkスキルのワークフロー確認観点)
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: apps/api-java
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Cache Gradle dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('apps/api-java/**/*.gradle*', 'apps/api-java/gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: |
+            gradle-${{ runner.os }}-
+
+      - name: Build (Spotless + ArchUnit + test + jar)
+        # spotlessCheck・ArchUnitアーキテクチャテスト・単体/統合テストは全て build タスクに内包される
+        # (計画書§1.1: Gradle は build → check → test の依存関係を持つ)
+        run: ./gradlew build --console=plain

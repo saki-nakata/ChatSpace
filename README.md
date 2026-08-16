@@ -28,9 +28,19 @@ Slack風のチャットアプリケーション。
 
 詳細な要件および設計上の注意点は [CLAUDE.md](CLAUDE.md) を参照。
 
+## 再設計について(進行中)
+
+上記のプロトタイプ(Node.js/Hono/Socket.IO/Prisma/SQLite)を土台に、**Java/Spring Boot + STOMP + PostgreSQL へのゼロからの再設計**を `feature/java-spring-boot-redesign` ブランチで進めている。
+
+- 設計ドキュメント一式(要件定義書・DB設計書・画面設計書・画面遷移図・シーケンス図・インフラ構成書・テスト設計書・ログ運用設計書・機能定義書11本)は [`docs/`](docs/) を参照
+- 実装計画(フェーズ単位の手順)は [`実装計画書/`](実装計画書/) を参照
+- 旧実装(`apps/api`, `apps/web`)は、新実装が機能同等性チェックリストを満たすまで並行して残す(削除しない)。現時点(フェーズ8完了、バックエンドフェーズ完了)では新バックエンド `apps/api-java` に認証・ワークスペース/チャンネル/DM CRUD・メッセージング(編集/削除/スレッド/リアクション)・STOMPによるリアルタイム通信・メンション/通知(スコープ再チェック含む)・検索(pg_trgm)・添付ファイル(マジックバイト判定・ライブ権限再チェック)・OpenAPI生成(`apps/api-java/openapi.json`)・STOMP宛先JSON書き出しまで実装済み。フロントエンド(`apps/web-next`、フェーズ9以降)は未着手
+
 ## 開発
 
 ### 技術スタック
+
+#### 現行実装(プロトタイプ、`apps/api` / `apps/web`)
 
 pnpm workspace によるモノレポ構成。
 
@@ -46,6 +56,23 @@ apps/
   web/    React製フロントエンド(ポート 5173)
 packages/
   shared/ zodスキーマ・DTO型・Socket.IOイベント名の共有パッケージ
+```
+
+#### 再設計中(`apps/api-java` / `apps/web-next`、進行中)
+
+| 分類 | 技術 |
+| --- | --- |
+| バックエンド | Java 21 + Spring Boot 4.1.0(STOMP over WebSocket, Spring Data JPA, Spring Security), PostgreSQL + Flyway, Nimbus JOSE+JWT |
+| 静的解析 | Spotless(google-java-format)、ArchUnit(3層アーキテクチャ制約の自動テスト) |
+| フロントエンド | React + Vite + TypeScript(ゼロから再構築、フェーズ9で着手) |
+
+```
+apps/
+  api-java/  Spring Boot製REST API + STOMPサーバー(ポート 8080、移行完了後 apps/api にリネーム)
+  web-next/  React製フロントエンド(移行完了後 apps/web にリネーム、未着手)
+docker-compose.yml   ローカル開発用 PostgreSQL
+docs/                設計ドキュメント一式
+実装計画書/           フェーズ別の実装手順書
 ```
 
 ### パッケージマネージャ
@@ -93,6 +120,24 @@ pnpm run typecheck   # 各パッケージの tsc --noEmit
 pnpm run lint        # ESLint(apps/api, apps/web。警告0件が必須)
 pnpm run test        # apps/api の認可テスト(vitest)。専用DB(prisma/test.db)へ自動でマイグレーションを適用する
 ```
+
+### 再設計中バックエンド(`apps/api-java`)のセットアップ・起動
+
+現時点ではリポジトリ雛形のみ(認証・API等の機能は未実装)。ビルド・マイグレーション適用の確認用。
+
+```bash
+# ローカル用 PostgreSQL を起動(リポジトリルートで実行)
+docker compose up -d postgres
+
+# ビルド(Spotless + ArchUnit + テスト + jar作成)
+cd apps/api-java
+./gradlew build
+
+# 起動(dev プロファイル、docker-compose.yml のPostgresへ自動接続)
+./gradlew bootRun --args='--spring.profiles.active=dev'
+```
+
+起動時に Flyway が `src/main/resources/db/migration/` 配下のマイグレーションを自動適用する。
 
 ### コードレビュー
 

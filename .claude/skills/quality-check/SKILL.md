@@ -35,15 +35,46 @@ pnpm exec eslint .
 
 ## 2. バックエンド
 
-### Java / Spring Boot（build.gradle または pom.xml が存在する場合）
+### Java / Spring Boot（`apps/api-java/build.gradle.kts` が存在する場合。本プロジェクトの確定スタック）
+
+Checkstyle/Maven は不採用（Spotless + ArchUnit を採用、計画書§1.1）。`./gradlew build` に
+`spotlessCheck`（フォーマット）・ArchUnitテスト（3層アーキテクチャ制約）・単体/統合テストがすべて
+内包されるため、これ1コマンドで完結する。
 
 ```bash
-# Checkstyle（build.gradle に checkstyle プラグインが設定されている場合）
-./gradlew checkstyleMain checkstyleTest
+cd apps/api-java
 
-# または Maven
-mvn checkstyle:check
+# フォーマット・ArchUnit・テスト・ビルドを一括実行（checkタスクの依存経由でspotlessCheckも走る）
+./gradlew build --console=plain
+
+# フォーマット違反のみを自動修正したい場合
+./gradlew spotlessApply
 ```
+
+### Flyway マイグレーション検証（`apps/api-java/src/main/resources/db/migration/` が存在する場合）
+
+```bash
+cd apps/api-java
+# 適用済みマイグレーションファイルが改変されていないかを検証する
+./gradlew flywayValidate
+```
+
+`git diff` で `V{既存の番号}__*.sql` ファイルの内容そのものが変更されている場合は指摘すること
+（変更が必要なら新しい番号のファイルを追加するのが正しい対応。DB設計書§1.3参照）。
+
+### OpenAPI 生成物のドリフト検出（フェーズ8以降、`apps/api-java` に springdoc-openapi 導入後）
+
+```bash
+cd apps/api-java
+./gradlew generateOpenApiDocs
+git diff --exit-code -- openapi.json  # 差分があればコミット漏れ
+```
+
+### 認可クリティカルテストの確認（`apps/api-java/src/test/java/.../authorization/` が存在する場合）
+
+上記の `./gradlew build` 実行結果のうち、`authorization` パッケージ配下のテストクラスの
+成否は必ず個別に報告すること（静的解析より重要度が高い項目のため、レポートの「バックエンド」
+節で他のテストとまとめず明示する）。テスト設計書.md の認可クリティカルテスト一覧と対応する。
 
 ### Python（pyproject.toml / setup.py が存在する場合）
 
@@ -69,14 +100,13 @@ flake8 .
 pnpm build
 ```
 
-### バックエンド Java / Spring Boot（build.gradle が存在する場合）
+### バックエンド Java / Spring Boot（`apps/api-java`）
 
-```bash
-# テストをスキップしてビルドのみ実行
-./gradlew build -x test
-```
+上記2節の `./gradlew build` に静的解析・テスト・ビルドがすべて含まれるため、ここで改めて
+テスト抜きビルドを実行する必要はない（本プロジェクトでは「認可クリティカルテストは lint より
+重要度が高い」という方針のため、テストをスキップしたビルド確認は行わない）。
 
-### バックエンド Maven（pom.xml が存在する場合）
+### バックエンド Maven（pom.xml が存在する場合。本プロジェクトでは不使用）
 
 ```bash
 mvn package -DskipTests
@@ -117,7 +147,7 @@ actionlint が利用できない場合は、`.github/workflows/` 配下の全フ
   - 該当する場合、`env:` で一度変数に受けてから `"$VAR"` として参照する形になっているか
   - 例（危険）: `run: echo "${{ github.event.pull_request.title }}"`
   - 例（安全）: `env: { TITLE: "${{ github.event.pull_request.title }}" }` として `run: echo "$TITLE"`
-- サードパーティ製アクションのバージョンが固定されているか（タグ参照より SHA 固定が望ましい）
+- アクションの参照方式が一貫しているか。本プロジェクトの方針: `actions/checkout` や `anthropics/claude-code-action` など公式・信頼できる publisher のアクションはタグ参照（`@v6` 等）で可とし、SHA固定は必須としない（学習用途のプロジェクトでは運用コストに見合わないため）。ただし出所の不明確なサードパーティアクションを新たに追加する場合は SHA 固定を検討する
 - `pull_request_target` を使用している場合、PRのコードをチェックアウトして実行していないか
 - フォークからのPRでシークレットを要するジョブが実行されないようガードされているか
 - `timeout-minutes` が設定されているか（ジョブの暴走防止）
@@ -129,7 +159,10 @@ actionlint が利用できない場合は、`.github/workflows/` 配下の全フ
 
 `docs/` ディレクトリまたは `README.md` が存在する場合のみ実行すること。
 
-`docs/` 配下の全ファイルと `README.md` を読み込み、現在のコード実装との差異を確認すること。
+**`docs/` は要件定義書・DB設計書・画面設計書・画面遷移図・シーケンス図・インフラ構成書・
+テスト設計書・ログ運用設計書・機能定義書（11ファイル）の計19ファイルと分量が大きいため、
+毎回全ファイルを読み込むのではなく、`git diff` で変更されたコードパッケージ・機能から
+対応するドキュメントを特定し、その範囲のみを対象とする**（例: `apps/api-java/src/main/java/com/chatspace/api/dm/` 配下の変更なら `docs/機能定義書/DM機能定義書.md` と `docs/要件定義書.md`・`docs/DB設計書.md` の関連箇所のみ確認すれば足りる）。差異確認の対象を絞れない大きな変更（新機能追加等）の場合のみ、関連する複数ドキュメントを横断的に確認する。`README.md` は毎回対象に含めてよい。
 
 **確認観点：**
 
@@ -156,16 +189,19 @@ actionlint が利用できない場合は、`.github/workflows/` 配下の全フ
 - 結果: PASS / FAIL
 - エラーがあれば内容を列挙
 
-### バックエンド（Checkstyle）
+### バックエンド（Spotless + ArchUnit + テスト + ビルド、`./gradlew build`）
 - 結果: PASS / FAIL / 対象外
-- 違反数: X 件
+- Spotlessフォーマット違反: X 件
+- ArchUnitアーキテクチャ制約違反: X 件（層飛ばし・Service へのHTTP概念混入・エンティティ直接返却）
+- **認可クリティカルテスト(`authorization`パッケージ)**: PASS / FAIL（個別に明示。件数と失敗テスト名を列挙)
+- その他テスト失敗: X 件
 - 問題があれば内容を列挙
 
-### フロントエンド（ビルド）
+### バックエンド（Flyway マイグレーション検証）
 - 結果: PASS / FAIL / 対象外
-- エラーがあれば内容を列挙
+- 適用済みファイルの改変: あり / なし
 
-### バックエンド（ビルド）
+### フロントエンド（ビルド）
 - 結果: PASS / FAIL / 対象外
 - エラーがあれば内容を列挙
 

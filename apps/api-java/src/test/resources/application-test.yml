@@ -1,0 +1,13 @@
+# テスト用プロファイル。データソース接続情報は Testcontainers の @ServiceConnection が
+# テスト実行時に動的に注入するため、ここでは接続文字列を固定しない(計画書§10)。
+spring:
+  jpa:
+    show-sql: false
+  flyway:
+    enabled: true
+
+chatspace:
+  # HS256は最低256bit(32バイト)の鍵長が必要(JwtService参照)
+  jwt-secret: test-only-secret-must-be-at-least-32-bytes-long
+  web-origin: http://localhost:5173
+  upload-dir: ./build/test-uploads
