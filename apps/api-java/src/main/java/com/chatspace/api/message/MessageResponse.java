@@ -20,9 +20,14 @@ public record MessageResponse(
     Instant updatedAt,
     Instant editedAt,
     long replyCount,
-    List<ReactionSummary> reactions) {
+    List<ReactionSummary> reactions,
+    List<MessageAttachmentResponse> attachments) {
 
-  static MessageResponse from(Message message, List<ReactionSummary> reactions, long replyCount) {
+  static MessageResponse from(
+      Message message,
+      List<ReactionSummary> reactions,
+      long replyCount,
+      List<MessageAttachmentResponse> attachments) {
     return new MessageResponse(
         message.getId(),
         message.getChannelId(),
@@ -35,6 +40,8 @@ public record MessageResponse(
         message.getUpdatedAt(),
         message.getEditedAt(),
         replyCount,
-        reactions);
+        reactions,
+        // 削除済みメッセージは本文同様に添付ファイルも隠す(tombstone方式、§3.3)
+        message.isDeleted() ? List.of() : attachments);
   }
 }

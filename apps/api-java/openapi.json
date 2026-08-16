@@ -1034,6 +1034,34 @@
         }
       }
     },
+    "/users/me" : {
+      "patch" : {
+        "tags" : [ "user-profile-controller" ],
+        "operationId" : "updateMe",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/UpdateProfileRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/UserResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/workspaces/{workspaceId}/search" : {
       "get" : {
         "tags" : [ "search-controller" ],
@@ -1760,6 +1788,32 @@
         },
         "required" : [ "emoji" ]
       },
+      "MessageAttachmentResponse" : {
+        "type" : "object",
+        "properties" : {
+          "id" : {
+            "type" : "string",
+            "format" : "uuid"
+          },
+          "url" : {
+            "type" : "string"
+          },
+          "fileName" : {
+            "type" : "string"
+          },
+          "mimeType" : {
+            "type" : "string"
+          },
+          "sizeBytes" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "kind" : {
+            "type" : "string",
+            "enum" : [ "IMAGE", "VIDEO" ]
+          }
+        }
+      },
       "MessageResponse" : {
         "type" : "object",
         "properties" : {
@@ -1809,6 +1863,12 @@
             "type" : "array",
             "items" : {
               "$ref" : "#/components/schemas/ReactionSummary"
+            }
+          },
+          "attachments" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/MessageAttachmentResponse"
             }
           }
         }
@@ -1948,6 +2008,20 @@
           }
         },
         "required" : [ "body" ]
+      },
+      "UpdateProfileRequest" : {
+        "type" : "object",
+        "properties" : {
+          "displayName" : {
+            "type" : "string"
+          },
+          "status" : {
+            "type" : "string"
+          },
+          "avatarUrl" : {
+            "type" : "string"
+          }
+        }
       },
       "Cursor" : {
         "type" : "object",

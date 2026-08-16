@@ -2,6 +2,7 @@ package com.chatspace.api.common;
 
 import java.util.UUID;
 import org.springframework.core.MethodParameter;
+import org.springframework.security.authentication.AnonymousAuthenticationToken;
 import org.springframework.security.authentication.AuthenticationCredentialsNotFoundException;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -33,7 +34,13 @@ public class CurrentUserArgumentResolver implements HandlerMethodArgumentResolve
       NativeWebRequest webRequest,
       WebDataBinderFactory binderFactory) {
     Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-    if (authentication == null || !authentication.isAuthenticated()) {
+    // Spring Securityの AnonymousAuthenticationToken は isAuthenticated() が true を返す仕様
+    // (「匿名として認証済み」という特殊な状態のため)。これを見落とすと、/auth/me のような
+    // permitAll だが @CurrentUser を使うエンドポイントで、未ログイン時に principal名("anonymousUser")を
+    // UUIDとして解釈しようとして例外になる(実機ブラウザ確認で発見した実在するバグ)。
+    if (authentication == null
+        || !authentication.isAuthenticated()
+        || authentication instanceof AnonymousAuthenticationToken) {
       throw new AuthenticationCredentialsNotFoundException("認証が必要です。");
     }
     return UUID.fromString(authentication.getName());

@@ -30,11 +30,11 @@ Slack風のチャットアプリケーション。
 
 ## 再設計について(進行中)
 
-上記のプロトタイプ(Node.js/Hono/Socket.IO/Prisma/SQLite)を土台に、**Java/Spring Boot + STOMP + PostgreSQL へのゼロからの再設計**を `feature/java-spring-boot-redesign` ブランチで進めている。
+上記のプロトタイプ(Node.js/Hono/Socket.IO/Prisma/SQLite)を土台に、**Java/Spring Boot + STOMP + PostgreSQL へのゼロからの再設計**を進めている(バックエンドは`feature/java-spring-boot-redesign`ブランチでmainにマージ済み、フロントエンドは`feature/web-next`ブランチで進行中)。
 
 - 設計ドキュメント一式(要件定義書・DB設計書・画面設計書・画面遷移図・シーケンス図・インフラ構成書・テスト設計書・ログ運用設計書・機能定義書11本)は [`docs/`](docs/) を参照
 - 実装計画(フェーズ単位の手順)は [`実装計画書/`](実装計画書/) を参照
-- 旧実装(`apps/api`, `apps/web`)は、新実装が機能同等性チェックリストを満たすまで並行して残す(削除しない)。現時点(フェーズ8完了、バックエンドフェーズ完了)では新バックエンド `apps/api-java` に認証・ワークスペース/チャンネル/DM CRUD・メッセージング(編集/削除/スレッド/リアクション)・STOMPによるリアルタイム通信・メンション/通知(スコープ再チェック含む)・検索(pg_trgm)・添付ファイル(マジックバイト判定・ライブ権限再チェック)・OpenAPI生成(`apps/api-java/openapi.json`)・STOMP宛先JSON書き出しまで実装済み。フロントエンド(`apps/web-next`、フェーズ9以降)は未着手
+- 旧実装(`apps/api`, `apps/web`)は、新実装が機能同等性チェックリストを満たすまで並行して残す(削除しない)。現時点でバックエンド `apps/api-java`(フェーズ0〜9)は認証・プロフィール編集・ワークスペース/チャンネル/DM CRUD・メッセージング(編集/削除/スレッド/リアクション)・STOMPによるリアルタイム通信・メンション/通知(スコープ再チェック含む)・検索(pg_trgm)・添付ファイル(マジックバイト判定・ライブ権限再チェック)・OpenAPI生成(`apps/api-java/openapi.json`)・STOMP宛先JSON書き出しまで実装済み。フロントエンド `apps/web-next`(フェーズ9)は認証・ワークスペース/チャンネル/DM一覧・チャンネル/DMのメッセージ送受信(仮想化リスト・上方向無限スクロール込み)・リアクション・Markdownレンダリング・`@`メンション自動補完・タイピングイベント送受信・スレッドパネル・添付ファイル(画像・動画アップロードUI)・プレゼンス・検索モーダル・通知パネル・ワークスペース/チャンネル管理モーダル(作成・メンバー管理・DM開始・プロフィール編集)まで実装済み(フェーズ9完了。未読区切り線・検索/通知ジャンプ時のハイライト表示等のUX拡張はフェーズ10で対応予定)
 
 ## 開発
 
@@ -64,12 +64,12 @@ packages/
 | --- | --- |
 | バックエンド | Java 21 + Spring Boot 4.1.0(STOMP over WebSocket, Spring Data JPA, Spring Security), PostgreSQL + Flyway, Nimbus JOSE+JWT |
 | 静的解析 | Spotless(google-java-format)、ArchUnit(3層アーキテクチャ制約の自動テスト) |
-| フロントエンド | React + Vite + TypeScript(ゼロから再構築、フェーズ9で着手) |
+| フロントエンド | React 18 + Vite + TypeScript(ゼロから再構築)、Zustand、`@stomp/stompjs`、Tailwind CSS、`openapi-typescript`によるAPI型生成 |
 
 ```
 apps/
   api-java/  Spring Boot製REST API + STOMPサーバー(ポート 8080、移行完了後 apps/api にリネーム)
-  web-next/  React製フロントエンド(移行完了後 apps/web にリネーム、未着手)
+  web-next/  React製フロントエンド(ポート 5174、移行完了後 apps/web にリネーム、フェーズ9完了)
 docker-compose.yml   ローカル開発用 PostgreSQL
 docs/                設計ドキュメント一式
 実装計画書/           フェーズ別の実装手順書
@@ -123,7 +123,7 @@ pnpm run test        # apps/api の認可テスト(vitest)。専用DB(prisma/tes
 
 ### 再設計中バックエンド(`apps/api-java`)のセットアップ・起動
 
-現時点ではリポジトリ雛形のみ(認証・API等の機能は未実装)。ビルド・マイグレーション適用の確認用。
+フェーズ0〜8完了(認証・ワークスペース/チャンネル/DM・メッセージング・STOMP・メンション/通知・検索・添付ファイル・OpenAPI生成まで実装済み)。
 
 ```bash
 # ローカル用 PostgreSQL を起動(リポジトリルートで実行)
@@ -133,11 +133,30 @@ docker compose up -d postgres
 cd apps/api-java
 ./gradlew build
 
-# 起動(dev プロファイル、docker-compose.yml のPostgresへ自動接続)
-./gradlew bootRun --args='--spring.profiles.active=dev'
+# 起動(dev プロファイル、docker-compose.yml のPostgresへ自動接続、alice/bob/carolのシードデータ投入)
+./gradlew bootRun --args='--spring.profiles.active=dev,seed'
 ```
 
-起動時に Flyway が `src/main/resources/db/migration/` 配下のマイグレーションを自動適用する。
+起動時に Flyway が `src/main/resources/db/migration/` 配下のマイグレーションを自動適用する。Swagger UI は `http://localhost:8080/swagger-ui/index.html`。
+
+### 再設計中フロントエンド(`apps/web-next`)のセットアップ・起動
+
+フェーズ9完了(認証・ワークスペース/チャンネル/DM一覧・メッセージ送受信・リアクション・Markdown・`@`メンション自動補完・タイピングイベント・スレッドパネル・添付ファイル・検索・通知パネル・各種管理モーダルまで実装済み)。旧`apps/web`(ポート5173)と並行起動できるようポート5174を使う。
+
+```bash
+cd apps/web-next
+pnpm install
+
+# apps/api-javaのopenapi.jsonからAPI型を再生成する(スキーマ変更時のみ)
+pnpm run generate:api-types
+
+pnpm run typecheck
+pnpm run lint
+pnpm run build
+pnpm run dev   # http://localhost:5174
+```
+
+`apps/api-java`側は`WEB_ORIGIN=http://localhost:5174`を指定して起動する必要がある(既定値は旧`apps/web`用の`:5173`のため、CORS・WebSocket Originの許可設定が一致しないとブロックされる)。
 
 ### コードレビュー
 

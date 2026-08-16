@@ -14,6 +14,8 @@ export default tseslint.config(
       "apps/api/prisma/migrations/**",
       ".playwright-mcp/**",
       "delete/**",
+      // openapi-typescript生成物(手動編集しない、計画書§7)
+      "apps/web-next/src/api/schema.d.ts",
     ],
   },
   js.configs.recommended,
@@ -25,7 +27,7 @@ export default tseslint.config(
     },
   },
   {
-    files: ["apps/web/**/*.{ts,tsx}"],
+    files: ["apps/web/**/*.{ts,tsx}", "apps/web-next/**/*.{ts,tsx}"],
     languageOptions: {
       globals: globals.browser,
     },
@@ -40,6 +42,13 @@ export default tseslint.config(
       // フェッチオンマウント(useEffect内でのローディング状態更新)を多用する設計。
       // その標準的なパターン自体は正しく動作するため、このルールは無効化する。
       "react-hooks/set-state-in-effect": "off",
+    },
+  },
+  {
+    // Vitestの契約テストはNode環境で実行するため、globals.browser相当のブラウザAPIを前提にしない
+    files: ["apps/web-next/**/*.test.ts"],
+    languageOptions: {
+      globals: globals.node,
     },
   },
   {

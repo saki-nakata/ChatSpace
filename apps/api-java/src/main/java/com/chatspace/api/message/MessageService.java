@@ -118,6 +118,14 @@ public class MessageService {
     // 配信はreactedByMeを含まないBroadcastMessageResponseへ変換する(操作者視点の値が全購読者に配信される不具合の
     // 修正、レビュー指摘対応)。REST応答(戻り値)は引き続きviewerごとに正しいMessageResponseを返す
     realtimeEventPublisher.messageCreated(channelId, dmId, BroadcastMessageResponse.from(response));
+    if (parent != null) {
+      // 親メッセージのreplyCountが増えたことを、スレッドパネルを開いていないユーザーにも
+      // 反映するため、親メッセージ自体もMESSAGE_UPDATEDとして再配信する(親のbody等は変わらないが、
+      // メインのメッセージ一覧上の「N件の返信」表示をリアルタイム更新するために必要)。
+      MessageResponse parentResponse = toResponse(parent, authorId);
+      realtimeEventPublisher.messageUpdated(
+          channelId, dmId, BroadcastMessageResponse.from(parentResponse));
+    }
     return response;
   }
 
@@ -315,14 +323,25 @@ public class MessageService {
     List<UUID> ids = messages.stream().map(Message::getId).toList();
     Map<UUID, List<ReactionSummary>> reactionsByMessage = reactionSummaries(ids, callerId);
     Map<UUID, Long> replyCounts = replyCounts(ids);
+    Map<UUID, List<MessageAttachmentResponse>> attachmentsByMessage = attachmentResponses(ids);
     return messages.stream()
         .map(
             m ->
                 MessageResponse.from(
                     m,
                     reactionsByMessage.getOrDefault(m.getId(), List.of()),
-                    replyCounts.getOrDefault(m.getId(), 0L)))
+                    replyCounts.getOrDefault(m.getId(), 0L),
+                    attachmentsByMessage.getOrDefault(m.getId(), List.of())))
         .toList();
+  }
+
+  private Map<UUID, List<MessageAttachmentResponse>> attachmentResponses(List<UUID> messageIds) {
+    return attachmentRepository.findByMessageIdIn(messageIds).stream()
+        .collect(
+            Collectors.groupingBy(
+                Attachment::getMessageId,
+                LinkedHashMap::new,
+                Collectors.mapping(MessageAttachmentResponse::from, Collectors.toList())));
   }
 
   private Map<UUID, List<ReactionSummary>> reactionSummaries(List<UUID> messageIds, UUID callerId) {
