@@ -1,44 +1,67 @@
 ## フェーズ6 — 検索
 
-**状態: 未着手**
+**状態: ✅ 完了(2026-08-16)**
 
-`pg_trgm` + `ILIKE` によるメッセージ検索を実装する。`pg_trgm`拡張とGINインデックスはフェーズ0で既にFlywayマイグレーション(`V1__create_extension_pg_trgm.sql`, `V8__create_messages.sql`)として作成済みのため、本フェーズは`SearchService`の実装のみ。詳細は [`docs/機能定義書/検索機能定義書.md`](../docs/機能定義書/検索機能定義書.md) を正とする。
+`pg_trgm` + `ILIKE` によるメッセージ検索を実装した。`pg_trgm`拡張とGINインデックスはフェーズ0で既にFlywayマイグレーション(`V1__create_extension_pg_trgm.sql`, `V8__create_messages.sql`)として作成済みのため、本フェーズは`search`パッケージの実装のみ。詳細は [`docs/機能定義書/検索機能定義書.md`](../docs/機能定義書/検索機能定義書.md) を正とする。
 
-**フェーズ3以降と並行実施可能**(フェーズ表参照)。`search`パッケージはフェーズ0で雛形作成済み。
+### 実施内容
 
-### 実装対象
+#### 1. `MessageRepository`へのネイティブ検索クエリ追加
 
-- [ ] `SearchService`: 呼び出しユーザーの所属チャンネル/DM集合(`myChannelIds`/`myDmIds`)をまず解決
-- [ ] **DM検索対象範囲の解決**: DM参加者であり、かつ現在も対象ワークスペースの`WorkspaceMember`であることを条件に含める(DM機能定義書のギャップ修正と同じ原則を検索にも適用)
-- [ ] 検索クエリ: `deleted_at IS NULL`(検索のみの除外、tombstone方式とは異なる扱い)、`body ILIKE`、ワイルドカードエスケープ(`%`・`_`・`\`自身を`REPLACE`の三重チェーンでエスケープ後`ESCAPE '\'`句を付与。適用順序厳守)、`(created_at, id)`複合カーソル
-- [ ] `channelId`指定時、非所属なら結果を空にする(403/404を返さず「結果なし」と区別不能にする)
-- [ ] 検索モーダル(S-12)向けページネーション: 1回最大50件、`nextCursor`をレスポンスに含める。「さらに検索結果を表示」ボタン+スクロール併用方式(完全な無限スクロールのみにしない)
+検索対象のエンティティは既存の`message`パッケージの`Message`であるため、リポジトリ自体は新設せず、既存の`MessageRepository`(`message`パッケージ)へ`searchFirstPage`/`searchOlderThan`の2メソッドを追加した(検索対象エンティティのオーナーであるリポジトリに検索クエリを置く方針)。計画書§5のSQL例は`channel_id = ANY(:ids)`だったが、Spring Data JPAのネイティブクエリでは`IN (:ids)`の方がコレクション引数のバインドが素直に効くため、`IN`句に変更した(結果として同じ絞り込みになる)。`deleted_at IS NULL`を明示し、`(created_at, id) < (:cursorCreatedAt, :cursorId)`の行値比較でカーソルページングする。
 
-### 先に書くテスト
+#### 2. `SearchService`
 
-`docs/テスト設計書.md` §6.2 の該当テストID。
+呼び出しユーザーの`myChannelIds`(`ChannelMemberRepository.findByUserIdAndWorkspaceId`)・`myDmIds`(`DmThreadRepository.findAllForUser`)をリクエストの都度ライブに解決する。`channelId`指定時は所属チェックを行い、非所属なら403/404を返さず空の結果を返す(検索機能定義書§3.1の存在秘匿方針)。ワイルドカードエスケープ(`\`→`%`→`_`の順)はSQLの`REPLACE`三重チェーンではなくJavaコード側で行い、エスケープ済みパターン文字列をバインドパラメータとして渡す方式にした(エスケープ順序をコードレベルで一箇所に固定でき、SQLインジェクションの余地もない)。`IN`句を空リストにできない制約への対処として、所属チャンネル/DMが0件の場合は実際のメッセージIDと衝突しないダミーUUID(`new UUID(0, 0)`)で埋める。
 
-- [ ] AUTH-N08: 検索のスコープ漏洩防止(非所属チャンネル/DMの内容が結果に含まれないこと)
-- [ ] AUTH-N09: 検索のソフトデリート除外(削除済みメッセージが結果に含まれないこと)
-- [ ] ワイルドカードインジェクション対策(`%`/`_`を含む検索語が意図しないパターンマッチを起こさないこと)
-- [ ] ワークスペースキック後、DM検索対象からの除外
+#### 3. ワークスペースキック後のDM検索除外の設計判断
 
-### 対象外(本フェーズでは扱わない)
+`DmThreadRepository.findAllForUser`自体はDM参加者チェックのみで、現在の`WorkspaceMember`であるかは見ていない(ワークスペースキックでも`DmThread`行は削除されないため)。`SearchService`側でこれを個別に再チェックしなかった理由は、検索エンドポイント自体が`/workspaces/{workspaceId}/search`というワークスペーススコープであり、`SearchController`が`SearchService`を呼ぶ前に`WorkspaceAuthorizationService.requireMember(workspaceId, userId)`を必ず先に実行しているため。ワークスペースキック済みユーザーはこの時点で404となり検索処理自体に到達できない(通知・DM権限で行った「個別にライブ再チェックする」パターンとは異なり、エンドポイントの入口の認可チェックがそのまま担保する形)。
 
-- Render実インスタンスでの`pg_trgm` EXPLAIN検証(大量データでの検証、フェーズ-2からの繰り越し事項。Renderアカウント準備後に実施)
+#### 4. `SearchController`
+
+`GET /workspaces/{workspaceId}/search?q=&channelId=&cursorCreatedAt=&cursorId=`。`q`のバリデーション(1〜200文字)は`SearchService`内で手動チェックした(`@RequestParam`へのBean Validation適用には`@Validated`のコントローラ単位設定が必要で、他エンドポイントに影響を与えないよう見送った)。
+
+### 遭遇した問題と対応
+
+- 本フェーズもコンパイルエラー・テスト失敗は発生しなかった。ただしWindows環境で新規ファイルを作成した際、改行コードがCRLFになり`spotlessJavaCheck`(google-java-formatはLF前提)が失敗した。`./gradlew spotlessApply`で自動整形して解消(既存ファイルの編集ではLFが保たれるため、新規ファイル作成時特有の問題)。
+
+### 実機検証
+
+`docker compose up -d postgres` → `bootRun --spring.profiles.active=dev,seed` で起動し確認した(検証後、アプリ・Postgresコンテナとも停止済み):
+
+| 確認項目 | 結果 |
+|---|---|
+| ワークスペース非メンバー(carol)が検索APIを呼ぶと404 | ✅ |
+| チャンネルメンバー(bob)が投稿済みメッセージを検索でき、本文がヒットする | ✅ |
+| `%`/`_`を含む検索語(`50%_完了`)がワイルドカードとして誤動作せず、文字どおりの一致でヒットする | ✅ |
+| 非公開チャンネル(bob非メンバー)の内容が、bobの全体検索結果に一切含まれない | ✅ |
+| bobが非公開チャンネルを`channelId`に指定して検索しても、エラーではなく`200`+空の結果が返る | ✅ |
+| メッセージ削除後、当該メッセージが検索結果から消える | ✅ |
+
+### ビルド確認
+
+`./gradlew build`が成功。テスト総数44件(フェーズ1-5からの39件 + 本フェーズ5件)、全てgreen。
+
+新規テスト(`docs/テスト設計書.md`§6.2準拠、`SearchAuthorizationTest`):
+
+| テストID | 内容 |
+|---|---|
+| AUTH-N08 | 非所属チャンネルのメッセージが検索結果に含まれないこと |
+| (§3.1関連) | `channelId`に非所属チャンネルを指定すると403/404ではなく空の結果が返ること |
+| AUTH-N09 | ソフトデリート済みメッセージが検索結果に含まれないこと |
+| (ワイルドカード対策) | `%`/`_`を含む検索語が文字どおりの一致として扱われ、無関係なメッセージにマッチしないこと |
+| (DMキック除外) | ワークスペースキック後、検索エンドポイント自体が404を返すこと(DM内容の非表示を含めて担保) |
+
+### 対象外(本フェーズでは扱わなかった、次フェーズ以降へ繰り越し)
+
+- Render実インスタンスでの`pg_trgm` EXPLAIN検証(大量データでの性能検証)は、フェーズ-2からの繰り越し事項のまま。Renderアカウント準備後、フェーズ14(任意のパフォーマンステスト)で実施予定
 - 形態素解析による自然な単語区切り検索(スコープ外)
-
-### 確認方法
-
-```bash
-docker compose up -d postgres
-cd apps/api-java
-./gradlew build
-```
 
 ## 関連ドキュメント
 
 - [`docs/機能定義書/検索機能定義書.md`](../docs/機能定義書/検索機能定義書.md)
 - [`docs/テスト設計書.md`](../docs/テスト設計書.md) §6.2
 - [実装計画書/phase-2.md](phase-2.md)(Render検証の繰り越し事項)
-- [phase3.md](phase3.md)(並行実施可)
+- [phase5.md](phase5.md)(前フェーズ)
+- [phase7.md](phase7.md)(次フェーズ)

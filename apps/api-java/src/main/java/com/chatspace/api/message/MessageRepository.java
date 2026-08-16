@@ -89,4 +89,36 @@ public interface MessageRepository extends JpaRepository<Message, UUID> {
 
     long getCount();
   }
+
+  /**
+   * 検索の初回ページ(検索機能定義書§3.2)。{@code deleted_at IS NULL}を明示し、ソフトデリート済みメッセージを除外する
+   * (一覧・スレッド・コンテキスト取得のtombstone方式とは異なり、検索のみの特別扱い)。{@code pattern}は呼び出し元で
+   * ワイルドカードエスケープ・前後`%`付与を済ませた文字列を渡すこと。
+   */
+  @Query(
+      value =
+          "SELECT * FROM messages WHERE deleted_at IS NULL AND (channel_id IN (:channelIds) OR"
+              + " dm_id IN (:dmIds)) AND body ILIKE :pattern ESCAPE '\\' ORDER BY created_at DESC,"
+              + " id DESC",
+      nativeQuery = true)
+  List<Message> searchFirstPage(
+      @Param("channelIds") List<UUID> channelIds,
+      @Param("dmIds") List<UUID> dmIds,
+      @Param("pattern") String pattern,
+      Pageable pageable);
+
+  /** 検索の複合カーソルページング(次ページ = より古い方向)。 */
+  @Query(
+      value =
+          "SELECT * FROM messages WHERE deleted_at IS NULL AND (channel_id IN (:channelIds) OR"
+              + " dm_id IN (:dmIds)) AND body ILIKE :pattern ESCAPE '\\' AND (created_at, id) <"
+              + " (:cursorCreatedAt, :cursorId) ORDER BY created_at DESC, id DESC",
+      nativeQuery = true)
+  List<Message> searchOlderThan(
+      @Param("channelIds") List<UUID> channelIds,
+      @Param("dmIds") List<UUID> dmIds,
+      @Param("pattern") String pattern,
+      @Param("cursorCreatedAt") Instant cursorCreatedAt,
+      @Param("cursorId") UUID cursorId,
+      Pageable pageable);
 }
