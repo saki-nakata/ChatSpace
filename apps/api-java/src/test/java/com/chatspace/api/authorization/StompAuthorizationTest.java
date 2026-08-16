@@ -111,6 +111,7 @@ class StompAuthorizationTest extends AbstractWebSocketIntegrationTest {
     // 購読が確立するまで少し待ってからメッセージを投稿する
     Thread.sleep(300);
     messageService.create(
+        workspace.getId(),
         channel.getId(),
         null,
         owner.getId(),

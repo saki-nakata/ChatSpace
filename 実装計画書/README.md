@@ -15,7 +15,7 @@ Node.js/Hono/Socket.IO/Prisma/SQLite のプロトタイプを土台に、Java/Sp
 | [フェーズ2](phase2.md) | ワークスペース/チャンネル/DM の CRUD(メッセージ抜き) | ✅ 完了 |
 | [フェーズ3](phase3.md) | メッセージ(チャンネル/DM共通)・リアクション・MessageScopeGuard | ✅ 完了 |
 | [フェーズ4](phase4.md) | リアルタイム(STOMP、SUBSCRIBE認可、SEND default-deny、キック強制切断) | ✅ 完了 |
-| [フェーズ5](phase5.md) | メンション・通知(スコープ再チェック含む) | 未着手 |
+| [フェーズ5](phase5.md) | メンション・通知(スコープ再チェック含む) | ✅ 完了 |
 | [フェーズ6](phase6.md) | 検索(pg_trgm、フェーズ3以降と並行可) | 未着手 |
 | [フェーズ7](phase7.md) | ファイルアップロード(フェーズ3以降と並行可) | 未着手 |
 | [フェーズ8](phase8.md) | OpenAPI生成パイプライン + STOMP宛先契約テスト | 未着手 |

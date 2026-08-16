@@ -1,8 +1,13 @@
 package com.chatspace.api.message;
 
 import com.chatspace.api.common.BadRequestException;
+import com.chatspace.api.common.Cursor;
 import com.chatspace.api.common.ForbiddenException;
 import com.chatspace.api.common.NotFoundException;
+import com.chatspace.api.dm.DmThread;
+import com.chatspace.api.dm.DmThreadRepository;
+import com.chatspace.api.notification.NotificationService;
+import com.chatspace.api.notification.NotificationType;
 import com.chatspace.api.realtime.RealtimeEventPublisher;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -34,22 +39,31 @@ public class MessageService {
   private final MessageRepository messageRepository;
   private final ReactionRepository reactionRepository;
   private final AttachmentRepository attachmentRepository;
+  private final DmThreadRepository dmThreadRepository;
+  private final MentionResolver mentionResolver;
+  private final NotificationService notificationService;
   private final RealtimeEventPublisher realtimeEventPublisher;
 
   public MessageService(
       MessageRepository messageRepository,
       ReactionRepository reactionRepository,
       AttachmentRepository attachmentRepository,
+      DmThreadRepository dmThreadRepository,
+      MentionResolver mentionResolver,
+      NotificationService notificationService,
       RealtimeEventPublisher realtimeEventPublisher) {
     this.messageRepository = messageRepository;
     this.reactionRepository = reactionRepository;
     this.attachmentRepository = attachmentRepository;
+    this.dmThreadRepository = dmThreadRepository;
+    this.mentionResolver = mentionResolver;
+    this.notificationService = notificationService;
     this.realtimeEventPublisher = realtimeEventPublisher;
   }
 
   @Transactional
   public MessageResponse create(
-      UUID channelId, UUID dmId, UUID authorId, CreateMessageRequest request) {
+      UUID workspaceId, UUID channelId, UUID dmId, UUID authorId, CreateMessageRequest request) {
     Message parent = resolveParent(channelId, dmId, request.parentId());
     List<Attachment> attachments = resolveAttachments(request.attachmentIds(), authorId);
 
@@ -61,10 +75,34 @@ public class MessageService {
       attachmentRepository.saveAll(attachments);
     }
 
-    // TODO(フェーズ5): チャンネル投稿時のメンション処理、返信のスレッド返信通知、DM投稿時の受信通知
+    if (channelId != null) {
+      mentionResolver.resolveAndNotify(message, workspaceId, channelId, authorId);
+    } else {
+      notifyDmRecipient(workspaceId, dmId, message, authorId);
+    }
+    if (parent != null) {
+      notificationService.notify(
+          NotificationType.THREAD_REPLY,
+          parent.getAuthorId(),
+          authorId,
+          workspaceId,
+          channelId,
+          dmId,
+          message.getId(),
+          parent.getId());
+    }
+
     MessageResponse response = toResponse(message, authorId);
     realtimeEventPublisher.messageCreated(channelId, dmId, response);
     return response;
+  }
+
+  private void notifyDmRecipient(UUID workspaceId, UUID dmId, Message message, UUID authorId) {
+    DmThread thread = dmThreadRepository.findById(dmId).orElseThrow(this::notFound);
+    UUID recipientId =
+        thread.getUserAId().equals(authorId) ? thread.getUserBId() : thread.getUserAId();
+    notificationService.notify(
+        NotificationType.DM, recipientId, authorId, workspaceId, null, dmId, message.getId(), null);
   }
 
   private Message resolveParent(UUID channelId, UUID dmId, UUID parentId) {
@@ -190,7 +228,7 @@ public class MessageService {
   private MessageListResponse toListResponse(
       List<Message> messages, UUID callerId, boolean mayHaveMore) {
     Cursor nextCursor =
-        mayHaveMore && !messages.isEmpty() ? Cursor.of(messages.get(messages.size() - 1)) : null;
+        mayHaveMore && !messages.isEmpty() ? cursorOf(messages.get(messages.size() - 1)) : null;
     return new MessageListResponse(toResponses(messages, callerId), nextCursor);
   }
 
@@ -220,9 +258,9 @@ public class MessageService {
     window.add(windowTarget);
     window.addAll(newer);
 
-    Cursor olderCursor = older.isEmpty() ? Cursor.of(windowTarget) : Cursor.of(older.get(0));
+    Cursor olderCursor = older.isEmpty() ? cursorOf(windowTarget) : cursorOf(older.get(0));
     Cursor newerCursor =
-        newer.isEmpty() ? Cursor.of(windowTarget) : Cursor.of(newer.get(newer.size() - 1));
+        newer.isEmpty() ? cursorOf(windowTarget) : cursorOf(newer.get(newer.size() - 1));
 
     return new MessageContextResponse(
         toResponses(window, callerId),
@@ -285,6 +323,10 @@ public class MessageService {
             Collectors.toMap(
                 MessageRepository.ParentReplyCount::getParentId,
                 MessageRepository.ParentReplyCount::getCount));
+  }
+
+  private Cursor cursorOf(Message message) {
+    return Cursor.of(message.getCreatedAt(), message.getId());
   }
 
   private NotFoundException notFound() {

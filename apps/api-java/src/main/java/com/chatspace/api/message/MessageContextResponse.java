@@ -1,5 +1,6 @@
 package com.chatspace.api.message;
 
+import com.chatspace.api.common.Cursor;
 import java.util.List;
 import java.util.UUID;
 

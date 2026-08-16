@@ -52,6 +52,11 @@ public class RealtimeEventPublisher {
     sendToUser(targetUserId, "DM_THREAD_CREATED", payload);
   }
 
+  /** メンション・DM・招待・スレッド返信の各通知を本人の個人キューへ配信する(通知機能定義書§3.2)。 */
+  public void notification(UUID recipientUserId, Object payload) {
+    sendToUser(recipientUserId, "NOTIFICATION", payload);
+  }
+
   public void channelMemberKicked(UUID workspaceId, Object payload) {
     sendToWorkspace(workspaceId, "CHANNEL_MEMBER_KICKED", payload);
   }

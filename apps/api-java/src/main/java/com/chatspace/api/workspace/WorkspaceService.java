@@ -4,6 +4,8 @@ import com.chatspace.api.channel.ChannelMemberRepository;
 import com.chatspace.api.common.BadRequestException;
 import com.chatspace.api.common.ConflictException;
 import com.chatspace.api.common.NotFoundException;
+import com.chatspace.api.notification.NotificationService;
+import com.chatspace.api.notification.NotificationType;
 import com.chatspace.api.realtime.MemberKickedEvent;
 import com.chatspace.api.realtime.PresenceService;
 import com.chatspace.api.realtime.RealtimeEventPublisher;
@@ -29,6 +31,7 @@ public class WorkspaceService {
   private final PresenceService presenceService;
   private final ApplicationEventPublisher eventPublisher;
   private final RealtimeEventPublisher realtimeEventPublisher;
+  private final NotificationService notificationService;
 
   public WorkspaceService(
       WorkspaceRepository workspaceRepository,
@@ -38,7 +41,8 @@ public class WorkspaceService {
       WorkspaceAuthorizationService workspaceAuthorizationService,
       PresenceService presenceService,
       ApplicationEventPublisher eventPublisher,
-      RealtimeEventPublisher realtimeEventPublisher) {
+      RealtimeEventPublisher realtimeEventPublisher,
+      NotificationService notificationService) {
     this.workspaceRepository = workspaceRepository;
     this.workspaceMemberRepository = workspaceMemberRepository;
     this.channelMemberRepository = channelMemberRepository;
@@ -47,6 +51,7 @@ public class WorkspaceService {
     this.presenceService = presenceService;
     this.eventPublisher = eventPublisher;
     this.realtimeEventPublisher = realtimeEventPublisher;
+    this.notificationService = notificationService;
   }
 
   @Transactional
@@ -106,7 +111,15 @@ public class WorkspaceService {
     }
     workspaceMemberRepository.save(
         new WorkspaceMember(workspaceId, target.getId(), WorkspaceRole.MEMBER));
-    // TODO(フェーズ5): 招待されたユーザーへWORKSPACE_INVITE通知を送信する(通知機能定義書参照)
+    notificationService.notify(
+        NotificationType.WORKSPACE_INVITE,
+        target.getId(),
+        callerId,
+        workspaceId,
+        null,
+        null,
+        null,
+        null);
   }
 
   @Transactional

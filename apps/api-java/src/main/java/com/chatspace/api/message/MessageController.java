@@ -54,7 +54,7 @@ public class MessageController {
       @Valid @RequestBody CreateMessageRequest request,
       @CurrentUser UUID userId) {
     requireScopeAccess(workspaceId, channelId, dmId, userId);
-    MessageResponse response = messageService.create(channelId, dmId, userId, request);
+    MessageResponse response = messageService.create(workspaceId, channelId, dmId, userId, request);
     return ResponseEntity.status(HttpStatus.CREATED).body(response);
   }
 

@@ -3,6 +3,8 @@ package com.chatspace.api.channel;
 import com.chatspace.api.common.ConflictException;
 import com.chatspace.api.common.NotFoundException;
 import com.chatspace.api.message.MessageRepository;
+import com.chatspace.api.notification.NotificationService;
+import com.chatspace.api.notification.NotificationType;
 import com.chatspace.api.realtime.MemberKickedEvent;
 import com.chatspace.api.realtime.RealtimeEventPublisher;
 import com.chatspace.api.user.User;
@@ -31,6 +33,7 @@ public class ChannelService {
   private final ChannelAuthorizationService channelAuthorizationService;
   private final ApplicationEventPublisher eventPublisher;
   private final RealtimeEventPublisher realtimeEventPublisher;
+  private final NotificationService notificationService;
 
   public ChannelService(
       ChannelRepository channelRepository,
@@ -41,7 +44,8 @@ public class ChannelService {
       WorkspaceAuthorizationService workspaceAuthorizationService,
       ChannelAuthorizationService channelAuthorizationService,
       ApplicationEventPublisher eventPublisher,
-      RealtimeEventPublisher realtimeEventPublisher) {
+      RealtimeEventPublisher realtimeEventPublisher,
+      NotificationService notificationService) {
     this.channelRepository = channelRepository;
     this.channelMemberRepository = channelMemberRepository;
     this.workspaceMemberRepository = workspaceMemberRepository;
@@ -51,6 +55,7 @@ public class ChannelService {
     this.channelAuthorizationService = channelAuthorizationService;
     this.eventPublisher = eventPublisher;
     this.realtimeEventPublisher = realtimeEventPublisher;
+    this.notificationService = notificationService;
   }
 
   @Transactional
@@ -166,7 +171,15 @@ public class ChannelService {
     if (channelMemberRepository.findByChannelIdAndUserId(channelId, target.getId()).isEmpty()) {
       channelMemberRepository.save(new ChannelMember(channelId, target.getId()));
     }
-    // TODO(フェーズ5): 招待されたユーザーへCHANNEL_INVITE通知を送信する(通知機能定義書参照)
+    notificationService.notify(
+        NotificationType.CHANNEL_INVITE,
+        target.getId(),
+        callerId,
+        workspaceId,
+        channelId,
+        null,
+        null,
+        null);
   }
 
   @Transactional(readOnly = true)

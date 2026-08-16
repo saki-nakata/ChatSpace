@@ -127,4 +127,8 @@ public class Notification {
   public Instant getReadAt() {
     return readAt;
   }
+
+  public void markRead(Instant readAt) {
+    this.readAt = readAt;
+  }
 }
