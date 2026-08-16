@@ -4,6 +4,7 @@ import com.chatspace.api.common.BadRequestException;
 import com.chatspace.api.common.NotFoundException;
 import com.chatspace.api.message.Message;
 import com.chatspace.api.message.MessageRepository;
+import com.chatspace.api.realtime.RealtimeEventPublisher;
 import com.chatspace.api.user.User;
 import com.chatspace.api.user.UserRepository;
 import com.chatspace.api.workspace.WorkspaceAuthorizationService;
@@ -12,6 +13,7 @@ import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -28,6 +30,7 @@ public class DmService {
   private final MessageRepository messageRepository;
   private final WorkspaceAuthorizationService workspaceAuthorizationService;
   private final DmAuthorizationService dmAuthorizationService;
+  private final RealtimeEventPublisher realtimeEventPublisher;
 
   public DmService(
       DmThreadRepository dmThreadRepository,
@@ -35,13 +38,15 @@ public class DmService {
       UserRepository userRepository,
       MessageRepository messageRepository,
       WorkspaceAuthorizationService workspaceAuthorizationService,
-      DmAuthorizationService dmAuthorizationService) {
+      DmAuthorizationService dmAuthorizationService,
+      RealtimeEventPublisher realtimeEventPublisher) {
     this.dmThreadRepository = dmThreadRepository;
     this.workspaceMemberRepository = workspaceMemberRepository;
     this.userRepository = userRepository;
     this.messageRepository = messageRepository;
     this.workspaceAuthorizationService = workspaceAuthorizationService;
     this.dmAuthorizationService = dmAuthorizationService;
+    this.realtimeEventPublisher = realtimeEventPublisher;
   }
 
   @Transactional(readOnly = true)
@@ -73,12 +78,18 @@ public class DmService {
 
     UUID userAId = callerId.compareTo(target.getId()) < 0 ? callerId : target.getId();
     UUID userBId = callerId.compareTo(target.getId()) < 0 ? target.getId() : callerId;
+    Optional<DmThread> existing =
+        dmThreadRepository.findByWorkspaceIdAndUserAIdAndUserBId(workspaceId, userAId, userBId);
     DmThread thread =
-        dmThreadRepository
-            .findByWorkspaceIdAndUserAIdAndUserBId(workspaceId, userAId, userBId)
-            .orElseGet(() -> dmThreadRepository.save(new DmThread(workspaceId, userAId, userBId)));
+        existing.orElseGet(
+            () -> dmThreadRepository.save(new DmThread(workspaceId, userAId, userBId)));
 
-    return toResponse(thread, callerId, Map.of(target.getId(), target));
+    DmThreadResponse response = toResponse(thread, callerId, Map.of(target.getId(), target));
+    if (existing.isEmpty()) {
+      // 新規作成時のみ相手個人宛にリアルタイムでスレッド作成を通知する(DM機能定義書§3.2手順6)
+      realtimeEventPublisher.dmThreadCreatedForUser(target.getId(), response);
+    }
+    return response;
   }
 
   @Transactional

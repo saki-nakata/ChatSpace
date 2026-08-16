@@ -4,12 +4,16 @@ import com.chatspace.api.channel.ChannelMemberRepository;
 import com.chatspace.api.common.BadRequestException;
 import com.chatspace.api.common.ConflictException;
 import com.chatspace.api.common.NotFoundException;
+import com.chatspace.api.realtime.MemberKickedEvent;
+import com.chatspace.api.realtime.PresenceService;
+import com.chatspace.api.realtime.RealtimeEventPublisher;
 import com.chatspace.api.user.User;
 import com.chatspace.api.user.UserRepository;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -22,18 +26,27 @@ public class WorkspaceService {
   private final ChannelMemberRepository channelMemberRepository;
   private final UserRepository userRepository;
   private final WorkspaceAuthorizationService workspaceAuthorizationService;
+  private final PresenceService presenceService;
+  private final ApplicationEventPublisher eventPublisher;
+  private final RealtimeEventPublisher realtimeEventPublisher;
 
   public WorkspaceService(
       WorkspaceRepository workspaceRepository,
       WorkspaceMemberRepository workspaceMemberRepository,
       ChannelMemberRepository channelMemberRepository,
       UserRepository userRepository,
-      WorkspaceAuthorizationService workspaceAuthorizationService) {
+      WorkspaceAuthorizationService workspaceAuthorizationService,
+      PresenceService presenceService,
+      ApplicationEventPublisher eventPublisher,
+      RealtimeEventPublisher realtimeEventPublisher) {
     this.workspaceRepository = workspaceRepository;
     this.workspaceMemberRepository = workspaceMemberRepository;
     this.channelMemberRepository = channelMemberRepository;
     this.userRepository = userRepository;
     this.workspaceAuthorizationService = workspaceAuthorizationService;
+    this.presenceService = presenceService;
+    this.eventPublisher = eventPublisher;
+    this.realtimeEventPublisher = realtimeEventPublisher;
   }
 
   @Transactional
@@ -71,11 +84,14 @@ public class WorkspaceService {
         .toList();
   }
 
-  /** 現在オンラインのユーザーID一覧。実際のプレゼンス追跡(WebSocketセッション連携)はフェーズ4で実装するため、現時点では常に空。 */
+  /** 現在オンラインのユーザーID一覧(リアルタイム通信機能定義書§11)。 */
   @Transactional(readOnly = true)
   public List<UUID> presence(UUID workspaceId, UUID callerId) {
     workspaceAuthorizationService.requireMember(workspaceId, callerId);
-    return List.of();
+    return workspaceMemberRepository.findByWorkspaceIdOrderByJoinedAtAsc(workspaceId).stream()
+        .map(WorkspaceMember::getUserId)
+        .filter(presenceService::isOnline)
+        .toList();
   }
 
   @Transactional
@@ -105,7 +121,9 @@ public class WorkspaceService {
     }
     channelMemberRepository.deleteByUserIdAndWorkspaceId(targetUserId, workspaceId);
     workspaceMemberRepository.delete(target);
-    // TODO(フェーズ4): AFTER_COMMITでの強制切断・リアルタイム通知(リアルタイム通信機能定義書参照)
+    // 強制切断はコミット後に実行する(MemberKickedEventListenerが@TransactionalEventListener(AFTER_COMMIT)で処理)
+    eventPublisher.publishEvent(new MemberKickedEvent(targetUserId));
+    realtimeEventPublisher.workspaceMemberKicked(workspaceId, Map.of("userId", targetUserId));
   }
 
   @Transactional

@@ -3,6 +3,7 @@ package com.chatspace.api.message;
 import com.chatspace.api.common.BadRequestException;
 import com.chatspace.api.common.ForbiddenException;
 import com.chatspace.api.common.NotFoundException;
+import com.chatspace.api.realtime.RealtimeEventPublisher;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -33,14 +34,17 @@ public class MessageService {
   private final MessageRepository messageRepository;
   private final ReactionRepository reactionRepository;
   private final AttachmentRepository attachmentRepository;
+  private final RealtimeEventPublisher realtimeEventPublisher;
 
   public MessageService(
       MessageRepository messageRepository,
       ReactionRepository reactionRepository,
-      AttachmentRepository attachmentRepository) {
+      AttachmentRepository attachmentRepository,
+      RealtimeEventPublisher realtimeEventPublisher) {
     this.messageRepository = messageRepository;
     this.reactionRepository = reactionRepository;
     this.attachmentRepository = attachmentRepository;
+    this.realtimeEventPublisher = realtimeEventPublisher;
   }
 
   @Transactional
@@ -58,8 +62,9 @@ public class MessageService {
     }
 
     // TODO(フェーズ5): チャンネル投稿時のメンション処理、返信のスレッド返信通知、DM投稿時の受信通知
-    // TODO(フェーズ4): 作成したメッセージをリアルタイムに配信(/topic/channels.{channelId} または /topic/dms.{dmId})
-    return toResponse(message, authorId);
+    MessageResponse response = toResponse(message, authorId);
+    realtimeEventPublisher.messageCreated(channelId, dmId, response);
+    return response;
   }
 
   private Message resolveParent(UUID channelId, UUID dmId, UUID parentId) {
@@ -109,8 +114,9 @@ public class MessageService {
     }
     message.edit(request.body(), Instant.now());
     messageRepository.save(message);
-    // TODO(フェーズ4): 編集イベントをリアルタイムに配信
-    return toResponse(message, callerId);
+    MessageResponse response = toResponse(message, callerId);
+    realtimeEventPublisher.messageUpdated(channelId, dmId, response);
+    return response;
   }
 
   @Transactional
@@ -121,7 +127,8 @@ public class MessageService {
     }
     message.markDeleted(Instant.now());
     messageRepository.save(message);
-    // TODO(フェーズ4): MESSAGE_DELETEDイベント(本文を含まない)をリアルタイムに配信
+    // MessageResponse.fromはdeleted=trueの場合bodyを空文字に置き換えるため、本文を含まずに配信される(§3.3)
+    realtimeEventPublisher.messageDeleted(channelId, dmId, toResponse(message, callerId));
   }
 
   @Transactional
@@ -133,8 +140,9 @@ public class MessageService {
         .ifPresentOrElse(
             reactionRepository::delete,
             () -> reactionRepository.save(new Reaction(messageId, callerId, emoji)));
-    // TODO(フェーズ4): REACTION_UPDATEDイベントをリアルタイムに配信
-    return toResponse(message, callerId);
+    MessageResponse response = toResponse(message, callerId);
+    realtimeEventPublisher.reactionUpdated(channelId, dmId, response);
+    return response;
   }
 
   /** 編集・削除・リアクション等の書き込み系操作の対象を取得する。削除済みは404として扱う(§6.3)。 */

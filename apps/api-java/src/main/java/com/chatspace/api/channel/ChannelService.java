@@ -3,6 +3,8 @@ package com.chatspace.api.channel;
 import com.chatspace.api.common.ConflictException;
 import com.chatspace.api.common.NotFoundException;
 import com.chatspace.api.message.MessageRepository;
+import com.chatspace.api.realtime.MemberKickedEvent;
+import com.chatspace.api.realtime.RealtimeEventPublisher;
 import com.chatspace.api.user.User;
 import com.chatspace.api.user.UserRepository;
 import com.chatspace.api.workspace.WorkspaceAuthorizationService;
@@ -12,6 +14,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -26,6 +29,8 @@ public class ChannelService {
   private final MessageRepository messageRepository;
   private final WorkspaceAuthorizationService workspaceAuthorizationService;
   private final ChannelAuthorizationService channelAuthorizationService;
+  private final ApplicationEventPublisher eventPublisher;
+  private final RealtimeEventPublisher realtimeEventPublisher;
 
   public ChannelService(
       ChannelRepository channelRepository,
@@ -34,7 +39,9 @@ public class ChannelService {
       UserRepository userRepository,
       MessageRepository messageRepository,
       WorkspaceAuthorizationService workspaceAuthorizationService,
-      ChannelAuthorizationService channelAuthorizationService) {
+      ChannelAuthorizationService channelAuthorizationService,
+      ApplicationEventPublisher eventPublisher,
+      RealtimeEventPublisher realtimeEventPublisher) {
     this.channelRepository = channelRepository;
     this.channelMemberRepository = channelMemberRepository;
     this.workspaceMemberRepository = workspaceMemberRepository;
@@ -42,6 +49,8 @@ public class ChannelService {
     this.messageRepository = messageRepository;
     this.workspaceAuthorizationService = workspaceAuthorizationService;
     this.channelAuthorizationService = channelAuthorizationService;
+    this.eventPublisher = eventPublisher;
+    this.realtimeEventPublisher = realtimeEventPublisher;
   }
 
   @Transactional
@@ -73,7 +82,9 @@ public class ChannelService {
                     channelMemberRepository.save(new ChannelMember(channel.getId(), user.getId())));
       }
     }
-    return ChannelResponse.from(channel, true, 0);
+    ChannelResponse response = ChannelResponse.from(channel, true, 0);
+    realtimeEventPublisher.channelCreated(workspaceId, response);
+    return response;
   }
 
   @Transactional(readOnly = true)
@@ -183,7 +194,12 @@ public class ChannelService {
             .findByChannelIdAndUserId(channelId, targetUserId)
             .orElseThrow(() -> new NotFoundException("対象のメンバーが見つかりません。"));
     channelMemberRepository.delete(target);
-    // TODO(フェーズ4): 対象ユーザーの購読を強制退出させる(リアルタイム通信機能定義書参照)
+    if (!targetUserId.equals(callerId)) {
+      // オーナーによる強制退出の場合のみ、コミット後に強制切断する(自主退出では発行しない)
+      eventPublisher.publishEvent(new MemberKickedEvent(targetUserId));
+      realtimeEventPublisher.channelMemberKicked(
+          workspaceId, Map.of("channelId", channelId, "userId", targetUserId));
+    }
   }
 
   @Transactional
@@ -195,6 +211,6 @@ public class ChannelService {
             .orElseThrow(() -> new NotFoundException("チャンネルが見つかりません。"));
     // 子リソース(ChannelMember/Message等)はDB側のON DELETE CASCADEで削除される(DB設計書参照)
     channelRepository.delete(channel);
-    // TODO(フェーズ4): ワークスペース全体へ削除イベントを配信する(リアルタイム通信機能定義書参照)
+    realtimeEventPublisher.channelDeleted(workspaceId, Map.of("channelId", channelId));
   }
 }
