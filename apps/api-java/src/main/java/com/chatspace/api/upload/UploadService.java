@@ -20,6 +20,8 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 /**
  * 添付ファイル機能定義書§3の業務ロジック。アップロード時はマジックバイト判定・保存先決定を、配信時はパストラバーサル対策と
@@ -77,7 +79,8 @@ public class UploadService {
     }
     // multipart解析レベルの上限(application.yml)に加え、サービス層でも実サイズを再確認する(多層防御の二段目、§3.3)
     if (content.length > maxAttachmentSizeBytes) {
-      throw new BadRequestException("ファイルサイズは25MB以下にしてください。");
+      throw new BadRequestException(
+          "ファイルサイズは" + (maxAttachmentSizeBytes / (1024 * 1024)) + "MB以下にしてください。");
     }
 
     byte[] header = Arrays.copyOf(content, Math.min(SNIFF_HEADER_BYTES, content.length));
@@ -143,11 +146,31 @@ public class UploadService {
     }
   }
 
+  /**
+   * ディスクへの書き込みはDBトランザクションの外側の副作用であるため、トランザクションがロールバックされた場合に
+   * 孤児ファイルが残らないよう、コミット以外の完了(ロールバック)時に削除する後始末を登録する(レビュー指摘対応)。
+   */
   private void saveToDisk(byte[] content, String storageKey) {
+    Path target = uploadDir.resolve(storageKey);
     try {
-      Files.write(uploadDir.resolve(storageKey), content);
+      Files.write(target, content);
     } catch (IOException e) {
       throw new UncheckedIOException(e);
+    }
+    if (TransactionSynchronizationManager.isSynchronizationActive()) {
+      TransactionSynchronizationManager.registerSynchronization(
+          new TransactionSynchronization() {
+            @Override
+            public void afterCompletion(int status) {
+              if (status != TransactionSynchronization.STATUS_COMMITTED) {
+                try {
+                  Files.deleteIfExists(target);
+                } catch (IOException ignored) {
+                  // ベストエフォート。孤児ファイルが残っても認可・DoSには影響しない(添付ファイル機能定義書§8)
+                }
+              }
+            }
+          });
     }
   }
 

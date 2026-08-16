@@ -29,6 +29,7 @@ public class MentionController {
       @RequestParam(required = false) String q,
       @CurrentUser UUID userId) {
     channelAuthorizationService.requireChannelMember(channelId, userId, workspaceId);
-    return new MentionCandidatesResponse(mentionCandidateService.findCandidates(channelId, q));
+    return new MentionCandidatesResponse(
+        mentionCandidateService.findCandidates(channelId, userId, q));
   }
 }

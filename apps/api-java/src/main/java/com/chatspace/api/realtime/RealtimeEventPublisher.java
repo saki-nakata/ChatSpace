@@ -3,9 +3,17 @@ package com.chatspace.api.realtime;
 import java.util.UUID;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 /**
  * {@link SimpMessagingTemplate}のラッパー。チャンネル/DM/ワークスペーストピックへのイベント発行口を集約する (リアルタイム通信機能定義書§4.1・§4.2)。
+ *
+ * <p><b>配信タイミング(レビュー指摘対応)</b>: 呼び出し元(各Service)は{@code @Transactional}メソッドの内側から
+ * このクラスのメソッドを呼ぶが、実際の配信はトランザクション同期が有効な場合{@code AFTER_COMMIT}まで遅延する。
+ * これにより、コミットが失敗(ロールバック)した際にDBに存在しないメッセージ等がクライアントへ配信されてしまう 不整合を防ぐ。キック時の強制切断が{@code
+ * MemberKickedEventListener}で既に{@code AFTER_COMMIT}にしているのと
+ * 同じ設計意図を、呼び出し側を一切変更せずにこのクラス1箇所へ集約する形で全配信経路に適用する。
  */
 @Component
 public class RealtimeEventPublisher {
@@ -36,8 +44,21 @@ public class RealtimeEventPublisher {
     sendToWorkspace(workspaceId, "CHANNEL_CREATED", payload);
   }
 
+  /**
+   * プライベートチャンネル作成時、ワークスペース全体へブロードキャストせず実メンバーの個人キューにのみ配信する (レビュー指摘:
+   * 無条件にワークスペーストピックへ送るとチャンネル名・存在が非参加メンバーに漏洩する)。
+   */
+  public void channelCreatedForUser(UUID targetUserId, Object payload) {
+    sendToUser(targetUserId, "CHANNEL_CREATED", payload);
+  }
+
   public void channelDeleted(UUID workspaceId, Object payload) {
     sendToWorkspace(workspaceId, "CHANNEL_DELETED", payload);
+  }
+
+  /** プライベートチャンネル削除時、実メンバーの個人キューにのみ配信する(上記{@link #channelCreatedForUser}と同じ理由)。 */
+  public void channelDeletedForUser(UUID targetUserId, Object payload) {
+    sendToUser(targetUserId, "CHANNEL_DELETED", payload);
   }
 
   /**
@@ -61,6 +82,11 @@ public class RealtimeEventPublisher {
     sendToWorkspace(workspaceId, "CHANNEL_MEMBER_KICKED", payload);
   }
 
+  /** プライベートチャンネルからのキック時、残存メンバーの個人キューにのみ配信する(上記と同じ理由)。 */
+  public void channelMemberKickedForUser(UUID targetUserId, Object payload) {
+    sendToUser(targetUserId, "CHANNEL_MEMBER_KICKED", payload);
+  }
+
   public void workspaceMemberKicked(UUID workspaceId, Object payload) {
     sendToWorkspace(workspaceId, "WORKSPACE_MEMBER_KICKED", payload);
   }
@@ -70,18 +96,37 @@ public class RealtimeEventPublisher {
         channelId != null
             ? StompDestinations.channelTopic(channelId)
             : StompDestinations.dmTopic(dmId);
-    messagingTemplate.convertAndSend(destination, new RealtimeEvent(type, payload));
+    dispatch(() -> messagingTemplate.convertAndSend(destination, new RealtimeEvent(type, payload)));
   }
 
   private void sendToWorkspace(UUID workspaceId, String type, Object payload) {
-    messagingTemplate.convertAndSend(
-        StompDestinations.workspaceTopic(workspaceId), new RealtimeEvent(type, payload));
+    dispatch(
+        () ->
+            messagingTemplate.convertAndSend(
+                StompDestinations.workspaceTopic(workspaceId), new RealtimeEvent(type, payload)));
   }
 
   private void sendToUser(UUID userId, String type, Object payload) {
-    messagingTemplate.convertAndSendToUser(
-        userId.toString(),
-        StompDestinations.USER_EVENTS_DESTINATION,
-        new RealtimeEvent(type, payload));
+    dispatch(
+        () ->
+            messagingTemplate.convertAndSendToUser(
+                userId.toString(),
+                StompDestinations.USER_EVENTS_DESTINATION,
+                new RealtimeEvent(type, payload)));
+  }
+
+  /** トランザクション同期が有効な場合はコミット後まで配信を遅延し、無効な場合(トランザクション外からの呼び出し)は 即時配信する。呼び出し元のServiceは何も変更する必要がない。 */
+  private void dispatch(Runnable action) {
+    if (TransactionSynchronizationManager.isSynchronizationActive()) {
+      TransactionSynchronizationManager.registerSynchronization(
+          new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+              action.run();
+            }
+          });
+    } else {
+      action.run();
+    }
   }
 }

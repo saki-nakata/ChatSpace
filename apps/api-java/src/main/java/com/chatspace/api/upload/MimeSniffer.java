@@ -3,6 +3,7 @@ package com.chatspace.api.upload;
 import com.chatspace.api.message.AttachmentKind;
 import java.nio.charset.StandardCharsets;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * ファイル実データの先頭バイト(マジックナンバー)からMIMEタイプを判定する(添付ファイル機能定義書§3.1・§6)。
@@ -23,6 +24,14 @@ public final class MimeSniffer {
   private static final byte[] FTYP_SIGNATURE = "ftyp".getBytes(StandardCharsets.US_ASCII);
   private static final byte[] WEBM_SIGNATURE = {(byte) 0x1A, (byte) 0x45, (byte) 0xDF, (byte) 0xA3};
 
+  /**
+   * {@code ftyp}マジックバイトはISO base media file format全般(MP4動画だけでなくM4A音声・MOV等)に共通のため、 ブランド(offset
+   * 8〜11の4バイト)を許可リストで検証してMP4動画のみを通す(レビュー指摘: ブランド未検証だと.m4a音声も
+   * video/mp4として通ってしまう)。代表的な動画系ブランドのみを許可し、M4A/M4B等の音声系ブランドは含めない。
+   */
+  private static final Set<String> MP4_VIDEO_BRANDS =
+      Set.of("isom", "iso2", "mp41", "mp42", "avc1", "M4V ", "3gp4", "3gp5");
+
   private MimeSniffer() {}
 
   /** 判定結果。{@code extension}は保存ファイル名({@code storageKey})の固定拡張子決定にのみ使う。 */
@@ -41,13 +50,21 @@ public final class MimeSniffer {
     if (matches(header, 0, RIFF_SIGNATURE) && matches(header, 8, WEBP_SIGNATURE)) {
       return Optional.of(new Detection("image/webp", AttachmentKind.IMAGE, "webp"));
     }
-    if (matches(header, 4, FTYP_SIGNATURE)) {
+    if (isMp4Video(header)) {
       return Optional.of(new Detection("video/mp4", AttachmentKind.VIDEO, "mp4"));
     }
     if (matches(header, 0, WEBM_SIGNATURE)) {
       return Optional.of(new Detection("video/webm", AttachmentKind.VIDEO, "webm"));
     }
     return Optional.empty();
+  }
+
+  private static boolean isMp4Video(byte[] header) {
+    if (!matches(header, 4, FTYP_SIGNATURE) || header.length < 12) {
+      return false;
+    }
+    String brand = new String(header, 8, 4, StandardCharsets.US_ASCII);
+    return MP4_VIDEO_BRANDS.contains(brand);
   }
 
   private static boolean matches(byte[] data, int offset, byte[] signature) {

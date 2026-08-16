@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.chatspace.api.channel.Channel;
+import com.chatspace.api.channel.ChannelService;
 import com.chatspace.api.channel.ChannelType;
 import com.chatspace.api.message.CreateMessageRequest;
 import com.chatspace.api.message.MessageService;
@@ -15,6 +16,7 @@ import com.chatspace.api.workspace.Workspace;
 import com.chatspace.api.workspace.WorkspaceRole;
 import jakarta.servlet.http.Cookie;
 import java.lang.reflect.Type;
+import java.util.List;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -42,6 +44,7 @@ class StompAuthorizationTest extends AbstractWebSocketIntegrationTest {
   private static final String ALLOWED_ORIGIN = "http://localhost:5173";
 
   @Autowired private MessageService messageService;
+  @Autowired private ChannelService channelService;
 
   private StompSession session;
   private StompSession otherSession;
@@ -151,6 +154,76 @@ class StompAuthorizationTest extends AbstractWebSocketIntegrationTest {
 
     String leaked = frames.poll(2, TimeUnit.SECONDS);
     assertNull(leaked, "偽装イベントは正当な購読者へ配信されないはず");
+  }
+
+  /**
+   * レビュー指摘対応: プライベートチャンネル作成時、ワークスペーストピックへブロードキャストされない(チャンネル非メンバーの
+   * ワークスペースメンバーに、チャンネル名・存在が漏洩しないこと)。以前は{@code type}を問わず無条件で {@code
+   * /topic/workspaces.{id}}へ送っていたため、購読しているだけの非メンバー全員にプライベートチャンネルの 作成イベント(チャンネル名を含む)が届いてしまっていた。
+   */
+  @Test
+  void createPrivateChannel_doesNotBroadcastToWorkspaceTopic() throws Exception {
+    User owner = fixtures.createUser();
+    Workspace workspace = fixtures.createWorkspaceWithOwner(owner);
+    User outsider = fixtures.createUser(); // ワークスペースメンバーだがチャンネル非メンバー
+    fixtures.addWorkspaceMember(workspace, outsider, WorkspaceRole.MEMBER);
+
+    RecordingHandler outsiderHandler = new RecordingHandler();
+    session = connect(outsider, outsiderHandler).get(5, TimeUnit.SECONDS);
+    BlockingQueue<String> workspaceFrames = new LinkedBlockingQueue<>();
+    session.subscribe(
+        "/topic/workspaces." + workspace.getId(), collectingFrameHandler(workspaceFrames));
+    Thread.sleep(300);
+
+    channelService.create(
+        workspace.getId(), owner.getId(), "secret-room", ChannelType.PRIVATE, List.of());
+
+    String leaked = workspaceFrames.poll(2, TimeUnit.SECONDS);
+    assertNull(leaked, "プライベートチャンネルの作成はワークスペーストピックへブロードキャストされないはず");
+  }
+
+  /** レビュー指摘対応(過剰ブロック検証): プライベートチャンネルの実メンバーは、個人キュー経由でCHANNEL_CREATEDを受信できること。 */
+  @Test
+  void createPrivateChannel_notifiesMemberViaPersonalQueue() throws Exception {
+    User owner = fixtures.createUser();
+    Workspace workspace = fixtures.createWorkspaceWithOwner(owner);
+
+    RecordingHandler handler = new RecordingHandler();
+    session = connect(owner, handler).get(5, TimeUnit.SECONDS);
+    BlockingQueue<String> personalFrames = new LinkedBlockingQueue<>();
+    session.subscribe("/user/queue/events", collectingFrameHandler(personalFrames));
+    Thread.sleep(300);
+
+    channelService.create(
+        workspace.getId(), owner.getId(), "secret-room-2", ChannelType.PRIVATE, List.of());
+
+    String frame = personalFrames.poll(5, TimeUnit.SECONDS);
+    assertNotNull(frame, "プライベートチャンネルの作成者は個人キュー経由でCHANNEL_CREATEDを受信できるはず");
+    assertTrue(frame.contains("CHANNEL_CREATED"));
+  }
+
+  /** レビュー指摘対応: プライベートチャンネルからのキックも同様にワークスペーストピックへブロードキャストされないこと。 */
+  @Test
+  void kickFromPrivateChannel_doesNotBroadcastToWorkspaceTopic() throws Exception {
+    User owner = fixtures.createUser();
+    Workspace workspace = fixtures.createWorkspaceWithOwner(owner);
+    User member = fixtures.createUser();
+    fixtures.addWorkspaceMember(workspace, member, WorkspaceRole.MEMBER);
+    User outsider = fixtures.createUser();
+    fixtures.addWorkspaceMember(workspace, outsider, WorkspaceRole.MEMBER);
+    Channel channel = fixtures.createChannel(workspace, ChannelType.PRIVATE, owner, member);
+
+    RecordingHandler outsiderHandler = new RecordingHandler();
+    session = connect(outsider, outsiderHandler).get(5, TimeUnit.SECONDS);
+    BlockingQueue<String> workspaceFrames = new LinkedBlockingQueue<>();
+    session.subscribe(
+        "/topic/workspaces." + workspace.getId(), collectingFrameHandler(workspaceFrames));
+    Thread.sleep(300);
+
+    channelService.removeMember(workspace.getId(), channel.getId(), owner.getId(), member.getId());
+
+    String leaked = workspaceFrames.poll(2, TimeUnit.SECONDS);
+    assertNull(leaked, "プライベートチャンネルからのキックはワークスペーストピックへブロードキャストされないはず");
   }
 
   /** AUTH-N27: 認証済みユーザーが自分の/user/queue/eventsを購読でき、拒否されないこと。 */

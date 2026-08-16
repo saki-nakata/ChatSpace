@@ -20,6 +20,25 @@ public interface MessageRepository extends JpaRepository<Message, UUID> {
       @Param("userId") UUID userId,
       @Param("lastReadAt") Instant lastReadAt);
 
+  /**
+   * チャンネル一覧表示時の未読件数を一括取得する(N+1回避、レビュー指摘対応)。{@code ChannelMember.lastReadAt}は チャンネルごとに異なるため、{@code
+   * ChannelMember}と{@code Message}をユーザーIDで相関させて1クエリで集計する (NotificationRepositoryの{@code
+   * VISIBLE_SCOPE_CONDITION}と同じ「FROM A, B WHERE」形式の相関パターン)。
+   */
+  @Query(
+      "SELECT m.channelId AS channelId, COUNT(m) AS count FROM Message m, ChannelMember cm WHERE"
+          + " cm.userId = :userId AND cm.channelId IN :channelIds AND cm.channelId = m.channelId"
+          + " AND m.authorId <> :userId AND m.deletedAt IS NULL AND m.createdAt >"
+          + " cm.lastReadAt GROUP BY m.channelId")
+  List<ChannelUnreadCount> countUnreadInChannels(
+      @Param("channelIds") Collection<UUID> channelIds, @Param("userId") UUID userId);
+
+  interface ChannelUnreadCount {
+    UUID getChannelId();
+
+    long getCount();
+  }
+
   @Query(
       "SELECT COUNT(m) FROM Message m WHERE m.dmId = :dmId AND m.authorId <> :userId AND"
           + " m.deletedAt IS NULL AND m.createdAt > :lastReadAt")

@@ -50,9 +50,19 @@ class MimeSnifferTest {
   void detectsMp4() {
     byte[] header = new byte[16];
     System.arraycopy("ftyp".getBytes(StandardCharsets.US_ASCII), 0, header, 4, 4);
+    System.arraycopy("isom".getBytes(StandardCharsets.US_ASCII), 0, header, 8, 4);
     MimeSniffer.Detection detection = MimeSniffer.detect(header).orElseThrow();
     assertEquals("video/mp4", detection.mimeType());
     assertEquals(AttachmentKind.VIDEO, detection.kind());
+  }
+
+  /** ftypシグネチャはISO base media file format全般に共通するため、ブランド未検証だと.m4a音声等も通ってしまう(レビュー指摘)。 */
+  @Test
+  void rejectsNonVideoFtypBrand() {
+    byte[] header = new byte[16];
+    System.arraycopy("ftyp".getBytes(StandardCharsets.US_ASCII), 0, header, 4, 4);
+    System.arraycopy("M4A ".getBytes(StandardCharsets.US_ASCII), 0, header, 8, 4);
+    assertTrue(MimeSniffer.detect(header).isEmpty());
   }
 
   @Test

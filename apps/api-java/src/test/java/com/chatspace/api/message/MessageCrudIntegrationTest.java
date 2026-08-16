@@ -1,6 +1,7 @@
 package com.chatspace.api.message;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -85,6 +86,54 @@ class MessageCrudIntegrationTest extends AbstractIntegrationTest {
             .orElseThrow();
     assertTrue(tombstone.get("deleted").asBoolean());
     assertEquals("", tombstone.get("body").asText());
+  }
+
+  /**
+   * レビュー指摘対応(カーソルページネーションの境界値): {@code nextCursor}は「取得件数 == ページサイズ(50)」で判定するため、
+   * ちょうどページサイズ件のときは次ページが実際には0件でも{@code nextCursor}が付与される(空ページを返す)仕様になっている。
+   * 実害は小さい(クライアントが1回余分にフェッチするだけ)が、この挙動が意図せず壊れないことを回帰テストとして固定する。
+   */
+  @Test
+  void list_exactlyPageSizeMessages_nextPageIsEmptyWithNullCursor() throws Exception {
+    User owner = fixtures.createUser();
+    Workspace workspace = fixtures.createWorkspaceWithOwner(owner);
+    Channel channel = fixtures.createChannel(workspace, ChannelType.PUBLIC, owner);
+
+    for (int i = 0; i < 50; i++) {
+      createMessage(workspace, channel, owner, "message-" + i, null);
+    }
+
+    MvcResult firstPageResult =
+        mockMvc
+            .perform(
+                get(
+                        "/workspaces/{workspaceId}/channels/{channelId}/messages",
+                        workspace.getId(),
+                        channel.getId())
+                    .cookie(fixtures.authCookie(owner)))
+            .andExpect(status().isOk())
+            .andReturn();
+    JsonNode firstPage = objectMapper.readTree(firstPageResult.getResponse().getContentAsString());
+    assertEquals(50, firstPage.get("messages").size());
+    JsonNode nextCursor = firstPage.get("nextCursor");
+    assertFalse(nextCursor.isNull(), "ちょうどページサイズ件のときnextCursorが付与される(既知の仕様)");
+
+    MvcResult secondPageResult =
+        mockMvc
+            .perform(
+                get(
+                        "/workspaces/{workspaceId}/channels/{channelId}/messages",
+                        workspace.getId(),
+                        channel.getId())
+                    .param("cursorCreatedAt", nextCursor.get("createdAt").asText())
+                    .param("cursorId", nextCursor.get("id").asText())
+                    .cookie(fixtures.authCookie(owner)))
+            .andExpect(status().isOk())
+            .andReturn();
+    JsonNode secondPage =
+        objectMapper.readTree(secondPageResult.getResponse().getContentAsString());
+    assertEquals(0, secondPage.get("messages").size(), "実際の次ページは0件のはず");
+    assertTrue(secondPage.get("nextCursor").isNull(), "0件ページではnextCursorはnullになるはず");
   }
 
   private String createMessage(

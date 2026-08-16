@@ -79,6 +79,8 @@ V12__create_notifications.sql -- notifications_type_check(THREAD_REPLY含む5種
 
 `./gradlew build`(コンパイル・Spotlessチェック・ArchUnitテスト・jar作成)が成功することを確認済み。
 
+> **2026-08-16追記**: フェーズ1〜8完了時点のレビューで、`LayeredArchitectureTest`の`allowEmptyShould(true)`削除の指摘があった。詳細は[review-fixes-2026-08-16.md](review-fixes-2026-08-16.md)を参照。
+
 ## 関連ドキュメント
 
 - [`docs/インフラ構成書.md`](../docs/インフラ構成書.md) §3.0(確定バージョン)

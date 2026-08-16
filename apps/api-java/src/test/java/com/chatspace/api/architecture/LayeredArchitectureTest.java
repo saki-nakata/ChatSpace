@@ -12,11 +12,8 @@ import org.junit.jupiter.api.Test;
 /**
  * 計画書§1「3層アーキテクチャ」の制約を自動テストとして強制する。
  *
- * <p>現時点(フェーズ0)では Controller/Service/Repository のいずれも実在しないため、各ルールの {@code that()}
- * 述語に一致するクラスが0件になる。ArchUnit は「述語に一致するクラスが0件」を既定でタイポ検知のため失敗扱いにする(空集合なら黙って通す、という設計では ない)ため、{@code
- * allowEmptyShould(true)} を明示し、フェーズ0時点では「対象クラスがまだ無いので判定不能」を意図的に許容している。フェーズ1で
- * Controller/Service/Repository を実際に追加すれば対象クラスが0件でなくなり、このテストが本来の制約チェックとして機能し始める(目視レビューだけに
- * 頼らない、という計画書§1の方針そのもの)。
+ * <p>フェーズ0時点では対象クラスが0件になるため{@code allowEmptyShould(true)}を暫定的に付与していたが、Controller/Service
+ * が多数実在する現在は不要かつ有害(命名規約が崩れて対象クラスが誤って0件になった場合にテストが黙って通ってしまう =タイポ検知が効かなくなる)。レビュー指摘により削除した。
  */
 class LayeredArchitectureTest {
 
@@ -34,8 +31,7 @@ class LayeredArchitectureTest {
             .should()
             .dependOnClassesThat()
             .haveSimpleNameEndingWith("Repository")
-            .as("Controller は Service を経由せず Repository を直接呼んではならない(層飛ばし禁止)")
-            .allowEmptyShould(true);
+            .as("Controller は Service を経由せず Repository を直接呼んではならない(層飛ばし禁止)");
 
     rule.check(CLASSES);
   }
@@ -49,8 +45,7 @@ class LayeredArchitectureTest {
             .should()
             .dependOnClassesThat()
             .resideInAnyPackage("jakarta.servlet..", "org.springframework.web..")
-            .as("Service は HTTP の概念を持ち込まない(STOMPハンドラや統合テストからの再利用性のため)")
-            .allowEmptyShould(true);
+            .as("Service は HTTP の概念を持ち込まない(STOMPハンドラや統合テストからの再利用性のため)");
 
     rule.check(CLASSES);
   }
@@ -64,8 +59,7 @@ class LayeredArchitectureTest {
         classes()
             .that()
             .haveSimpleNameEndingWith("Controller")
-            .should(EntityReturnTypeCondition.notReturnJpaEntitiesDirectly())
-            .allowEmptyShould(true);
+            .should(EntityReturnTypeCondition.notReturnJpaEntitiesDirectly());
 
     rule.check(CLASSES);
   }

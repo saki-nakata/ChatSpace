@@ -1,9 +1,11 @@
 package com.chatspace.api.message;
 
+import com.chatspace.api.channel.ChannelAuthorizationService;
 import com.chatspace.api.common.BadRequestException;
 import com.chatspace.api.common.Cursor;
 import com.chatspace.api.common.ForbiddenException;
 import com.chatspace.api.common.NotFoundException;
+import com.chatspace.api.dm.DmAuthorizationService;
 import com.chatspace.api.dm.DmThread;
 import com.chatspace.api.dm.DmThreadRepository;
 import com.chatspace.api.notification.NotificationService;
@@ -25,9 +27,10 @@ import org.springframework.transaction.annotation.Transactional;
 /**
  * メッセージング機能定義書§3の業務ロジック。チャンネル・DM共通(計画書§3、プロトタイプの{@code messages-service.ts}を移植)。
  *
- * <p>呼び出し元のスコープメンバーシップ(チャンネル/DMメンバーか)は {@code ChannelAuthorizationService}/{@code
- * DmAuthorizationService} が先に検証済みである前提。本クラスは {@code messageId} が実際にそのスコープに属するかの検証 ({@link
- * MessageScopeGuard}、confused-deputy対策)とメッセージ自体のCRUDを担う。
+ * <p>呼び出し元のスコープメンバーシップ(チャンネル/DMメンバーか)は{@code MessageController}が先に検証しているが、
+ * 本クラス自身も各メソッド先頭で同じ検証を行う(レビュー指摘対応の多層防御。将来STOMPハンドラや別のController経由で
+ * 本サービスが直接呼ばれても無防備にならないようにするため、Controllerだけに検証を委ねない)。{@code messageId}が 実際にそのスコープに属するかの検証は別途{@link
+ * MessageScopeGuard}(confused-deputy対策)が担う。
  */
 @Service
 public class MessageService {
@@ -43,6 +46,8 @@ public class MessageService {
   private final MentionResolver mentionResolver;
   private final NotificationService notificationService;
   private final RealtimeEventPublisher realtimeEventPublisher;
+  private final ChannelAuthorizationService channelAuthorizationService;
+  private final DmAuthorizationService dmAuthorizationService;
 
   public MessageService(
       MessageRepository messageRepository,
@@ -51,7 +56,9 @@ public class MessageService {
       DmThreadRepository dmThreadRepository,
       MentionResolver mentionResolver,
       NotificationService notificationService,
-      RealtimeEventPublisher realtimeEventPublisher) {
+      RealtimeEventPublisher realtimeEventPublisher,
+      ChannelAuthorizationService channelAuthorizationService,
+      DmAuthorizationService dmAuthorizationService) {
     this.messageRepository = messageRepository;
     this.reactionRepository = reactionRepository;
     this.attachmentRepository = attachmentRepository;
@@ -59,11 +66,26 @@ public class MessageService {
     this.mentionResolver = mentionResolver;
     this.notificationService = notificationService;
     this.realtimeEventPublisher = realtimeEventPublisher;
+    this.channelAuthorizationService = channelAuthorizationService;
+    this.dmAuthorizationService = dmAuthorizationService;
+  }
+
+  /**
+   * スコープメンバーシップの再検証(多層防御)。{@code workspaceIdOrNull}が無い呼び出し元ではnullを渡す(confused-deputy
+   * チェックはControllerで実施済みのため、ここではメンバーシップの有無のみを見れば十分)。
+   */
+  private void requireScopeAccess(UUID channelId, UUID dmId, UUID callerId) {
+    if (channelId != null) {
+      channelAuthorizationService.requireChannelMember(channelId, callerId, null);
+    } else {
+      dmAuthorizationService.requireDmAccess(dmId, callerId, null);
+    }
   }
 
   @Transactional
   public MessageResponse create(
       UUID workspaceId, UUID channelId, UUID dmId, UUID authorId, CreateMessageRequest request) {
+    requireScopeAccess(channelId, dmId, authorId);
     Message parent = resolveParent(channelId, dmId, request.parentId());
     List<Attachment> attachments = resolveAttachments(request.attachmentIds(), authorId);
 
@@ -93,7 +115,9 @@ public class MessageService {
     }
 
     MessageResponse response = toResponse(message, authorId);
-    realtimeEventPublisher.messageCreated(channelId, dmId, response);
+    // 配信はreactedByMeを含まないBroadcastMessageResponseへ変換する(操作者視点の値が全購読者に配信される不具合の
+    // 修正、レビュー指摘対応)。REST応答(戻り値)は引き続きviewerごとに正しいMessageResponseを返す
+    realtimeEventPublisher.messageCreated(channelId, dmId, BroadcastMessageResponse.from(response));
     return response;
   }
 
@@ -146,6 +170,7 @@ public class MessageService {
   @Transactional
   public MessageResponse edit(
       UUID channelId, UUID dmId, UUID messageId, UUID callerId, EditMessageRequest request) {
+    requireScopeAccess(channelId, dmId, callerId);
     Message message = loadWritable(channelId, dmId, messageId);
     if (!message.getAuthorId().equals(callerId)) {
       throw new ForbiddenException("他人のメッセージは編集できません。");
@@ -153,12 +178,13 @@ public class MessageService {
     message.edit(request.body(), Instant.now());
     messageRepository.save(message);
     MessageResponse response = toResponse(message, callerId);
-    realtimeEventPublisher.messageUpdated(channelId, dmId, response);
+    realtimeEventPublisher.messageUpdated(channelId, dmId, BroadcastMessageResponse.from(response));
     return response;
   }
 
   @Transactional
   public void delete(UUID channelId, UUID dmId, UUID messageId, UUID callerId) {
+    requireScopeAccess(channelId, dmId, callerId);
     Message message = loadWritable(channelId, dmId, messageId);
     if (!message.getAuthorId().equals(callerId)) {
       throw new ForbiddenException("他人のメッセージは削除できません。");
@@ -166,12 +192,14 @@ public class MessageService {
     message.markDeleted(Instant.now());
     messageRepository.save(message);
     // MessageResponse.fromはdeleted=trueの場合bodyを空文字に置き換えるため、本文を含まずに配信される(§3.3)
-    realtimeEventPublisher.messageDeleted(channelId, dmId, toResponse(message, callerId));
+    realtimeEventPublisher.messageDeleted(
+        channelId, dmId, BroadcastMessageResponse.from(toResponse(message, callerId)));
   }
 
   @Transactional
   public MessageResponse toggleReaction(
       UUID channelId, UUID dmId, UUID messageId, UUID callerId, String emoji) {
+    requireScopeAccess(channelId, dmId, callerId);
     Message message = loadWritable(channelId, dmId, messageId);
     reactionRepository
         .findByMessageIdAndUserIdAndEmoji(messageId, callerId, emoji)
@@ -179,7 +207,8 @@ public class MessageService {
             reactionRepository::delete,
             () -> reactionRepository.save(new Reaction(messageId, callerId, emoji)));
     MessageResponse response = toResponse(message, callerId);
-    realtimeEventPublisher.reactionUpdated(channelId, dmId, response);
+    realtimeEventPublisher.reactionUpdated(
+        channelId, dmId, BroadcastMessageResponse.from(response));
     return response;
   }
 
@@ -196,6 +225,7 @@ public class MessageService {
   @Transactional(readOnly = true)
   public MessageListResponse list(
       UUID channelId, UUID dmId, UUID callerId, Instant cursorCreatedAt, UUID cursorId) {
+    requireScopeAccess(channelId, dmId, callerId);
     Pageable pageable = PageRequest.of(0, LIST_PAGE_SIZE);
     List<Message> messages =
         (cursorCreatedAt == null || cursorId == null)
@@ -213,6 +243,7 @@ public class MessageService {
       UUID callerId,
       Instant cursorCreatedAt,
       UUID cursorId) {
+    requireScopeAccess(channelId, dmId, callerId);
     Message parent = messageRepository.findById(parentMessageId).orElseThrow(this::notFound);
     MessageScopeGuard.assertInScope(parent, channelId, dmId);
 
@@ -235,6 +266,7 @@ public class MessageService {
   @Transactional(readOnly = true)
   public MessageContextResponse getContext(
       UUID channelId, UUID dmId, UUID messageId, UUID callerId) {
+    requireScopeAccess(channelId, dmId, callerId);
     Message target = messageRepository.findById(messageId).orElseThrow(this::notFound);
     MessageScopeGuard.assertInScope(target, channelId, dmId);
 

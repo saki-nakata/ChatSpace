@@ -8,6 +8,7 @@ import com.chatspace.api.dm.DmThread;
 import com.chatspace.api.dm.DmThreadRepository;
 import com.chatspace.api.message.Message;
 import com.chatspace.api.message.MessageRepository;
+import com.chatspace.api.workspace.WorkspaceAuthorizationService;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -21,10 +22,9 @@ import org.springframework.transaction.annotation.Transactional;
  *
  * <p><b>DM検索対象とワークスペースキックの関係</b>: {@code DmThreadRepository.findAllForUser}自体は {@code
  * DmThread}の参加者チェックのみで、現在の{@code WorkspaceMember}であるかは見ていない(ワークスペースキックでも {@code
- * DmThread}行は削除されないため)。本サービスがワークスペースメンバーシップを再チェックしていないのは、呼び出し元の {@link
- * SearchController}が本メソッドを呼ぶ前に{@code WorkspaceAuthorizationService.requireMember(workspaceId,
- * userId)}を必ず先に実行しており、ワークスペースキック済みユーザーはその時点で404となり本メソッドへ到達できないため
- * (検索エンドポイント自体がワークスペーススコープであることによる担保)。
+ * DmThread}行は削除されないため)。本メソッド先頭の{@code WorkspaceAuthorizationService.requireMember}が
+ * ワークスペースキック済みユーザーを404で弾くことで、DM検索対象からも間接的に除外される(検索エンドポイント自体が ワークスペーススコープであることによる担保)。この検証は{@link
+ * SearchController}でも実施しているが、本サービスが Controllerを経由せず呼ばれても無防備にならないよう、多層防御としてサービス層でも検証する(レビュー指摘対応)。
  */
 @Service
 public class SearchService {
@@ -38,14 +38,17 @@ public class SearchService {
   private final MessageRepository messageRepository;
   private final ChannelMemberRepository channelMemberRepository;
   private final DmThreadRepository dmThreadRepository;
+  private final WorkspaceAuthorizationService workspaceAuthorizationService;
 
   public SearchService(
       MessageRepository messageRepository,
       ChannelMemberRepository channelMemberRepository,
-      DmThreadRepository dmThreadRepository) {
+      DmThreadRepository dmThreadRepository,
+      WorkspaceAuthorizationService workspaceAuthorizationService) {
     this.messageRepository = messageRepository;
     this.channelMemberRepository = channelMemberRepository;
     this.dmThreadRepository = dmThreadRepository;
+    this.workspaceAuthorizationService = workspaceAuthorizationService;
   }
 
   @Transactional(readOnly = true)
@@ -56,6 +59,8 @@ public class SearchService {
       UUID channelIdFilter,
       Instant cursorCreatedAt,
       UUID cursorId) {
+    // ワークスペース自体の非メンバーは404(存在秘匿、検索機能定義書§5)。多層防御(レビュー指摘対応)
+    workspaceAuthorizationService.requireMember(workspaceId, callerId);
     validateQuery(query);
 
     List<UUID> channelIds =

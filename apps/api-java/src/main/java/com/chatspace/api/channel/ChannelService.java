@@ -16,6 +16,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.stream.Collectors;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -88,7 +89,17 @@ public class ChannelService {
       }
     }
     ChannelResponse response = ChannelResponse.from(channel, true, 0);
-    realtimeEventPublisher.channelCreated(workspaceId, response);
+    if (type == ChannelType.PRIVATE) {
+      // ワークスペース全体へブロードキャストすると非参加メンバーにチャンネル名・存在が漏洩するため、
+      // 実メンバーの個人キューにのみ配信する(レビュー指摘対応。DM_THREAD_CREATEDと同種の設計判断)
+      List<UUID> memberIds =
+          channelMemberRepository.findByChannelIdOrderByJoinedAtAsc(channel.getId()).stream()
+              .map(ChannelMember::getUserId)
+              .toList();
+      memberIds.forEach(id -> realtimeEventPublisher.channelCreatedForUser(id, response));
+    } else {
+      realtimeEventPublisher.channelCreated(workspaceId, response);
+    }
     return response;
   }
 
@@ -112,17 +123,24 @@ public class ChannelService {
             .toList();
     channelRepository.findAllById(missingChannelIds).forEach(c -> channelsById.put(c.getId(), c));
 
+    // 未読件数はチャンネルごとに個別クエリを発行せず、1クエリで一括取得する(N+1回避、レビュー指摘対応)
+    Map<UUID, Long> unreadCounts =
+        myMemberships.isEmpty()
+            ? Map.of()
+            : messageRepository
+                .countUnreadInChannels(membershipByChannelId.keySet(), callerId)
+                .stream()
+                .collect(
+                    Collectors.toMap(
+                        MessageRepository.ChannelUnreadCount::getChannelId,
+                        MessageRepository.ChannelUnreadCount::getCount));
+
     return channelsById.values().stream()
         .sorted((a, b) -> a.getCreatedAt().compareTo(b.getCreatedAt()))
         .map(
             channel -> {
-              ChannelMember membership = membershipByChannelId.get(channel.getId());
-              boolean isMember = membership != null;
-              long unreadCount =
-                  isMember
-                      ? messageRepository.countUnreadInChannel(
-                          channel.getId(), callerId, membership.getLastReadAt())
-                      : 0;
+              boolean isMember = membershipByChannelId.containsKey(channel.getId());
+              long unreadCount = unreadCounts.getOrDefault(channel.getId(), 0L);
               return ChannelResponse.from(channel, isMember, unreadCount);
             })
         .toList();
@@ -198,7 +216,8 @@ public class ChannelService {
 
   @Transactional
   public void removeMember(UUID workspaceId, UUID channelId, UUID callerId, UUID targetUserId) {
-    channelAuthorizationService.requireChannelMember(channelId, callerId, workspaceId);
+    Channel channel =
+        channelAuthorizationService.requireChannelMember(channelId, callerId, workspaceId);
     if (!targetUserId.equals(callerId)) {
       workspaceAuthorizationService.requireOwner(workspaceId, callerId);
     }
@@ -210,8 +229,19 @@ public class ChannelService {
     if (!targetUserId.equals(callerId)) {
       // オーナーによる強制退出の場合のみ、コミット後に強制切断する(自主退出では発行しない)
       eventPublisher.publishEvent(new MemberKickedEvent(targetUserId));
-      realtimeEventPublisher.channelMemberKicked(
-          workspaceId, Map.of("channelId", channelId, "userId", targetUserId));
+      Map<String, Object> payload = Map.of("channelId", channelId, "userId", targetUserId);
+      if (channel.getType() == ChannelType.PRIVATE) {
+        // 誰がプライベートチャンネルから外れたかは非参加メンバーに漏らさない(レビュー指摘対応)。
+        // 残存メンバー(キック済みの対象は既に削除済みで含まれない)の個人キューにのみ配信する
+        List<UUID> remainingMemberIds =
+            channelMemberRepository.findByChannelIdOrderByJoinedAtAsc(channelId).stream()
+                .map(ChannelMember::getUserId)
+                .toList();
+        remainingMemberIds.forEach(
+            id -> realtimeEventPublisher.channelMemberKickedForUser(id, payload));
+      } else {
+        realtimeEventPublisher.channelMemberKicked(workspaceId, payload);
+      }
     }
   }
 
@@ -222,8 +252,21 @@ public class ChannelService {
         channelRepository
             .findByIdAndWorkspaceId(channelId, workspaceId)
             .orElseThrow(() -> new NotFoundException("チャンネルが見つかりません。"));
+    // 削除前にメンバーIDを控えておく(削除後はON DELETE CASCADEでChannelMember行ごと消えるため)
+    List<UUID> memberIds =
+        channel.getType() == ChannelType.PRIVATE
+            ? channelMemberRepository.findByChannelIdOrderByJoinedAtAsc(channelId).stream()
+                .map(ChannelMember::getUserId)
+                .toList()
+            : List.of();
     // 子リソース(ChannelMember/Message等)はDB側のON DELETE CASCADEで削除される(DB設計書参照)
     channelRepository.delete(channel);
-    realtimeEventPublisher.channelDeleted(workspaceId, Map.of("channelId", channelId));
+    Map<String, Object> payload = Map.of("channelId", channelId);
+    if (channel.getType() == ChannelType.PRIVATE) {
+      // プライベートチャンネルの削除も非参加メンバーには知らせない(レビュー指摘対応)
+      memberIds.forEach(id -> realtimeEventPublisher.channelDeletedForUser(id, payload));
+    } else {
+      realtimeEventPublisher.channelDeleted(workspaceId, payload);
+    }
   }
 }

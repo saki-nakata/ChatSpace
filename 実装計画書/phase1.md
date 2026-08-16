@@ -66,6 +66,8 @@ Repositoryは現時点で `JpaRepository<Entity, UUID>` の空継承のみ(`User
 
 `./gradlew build`(コンパイル・Spotlessチェック・ArchUnitテスト・単体テスト・jar作成)が成功。ArchUnitの3層アーキテクチャ制約テスト(フェーズ0時点では対象クラス0件で`allowEmptyShould`により素通りしていた)が、本フェーズで実クラスが揃ったことで実際に制約チェックとして機能し、違反なしを確認した。単体テストは`JwtServiceTest`(5件: 発行・検証、改ざん検知、期限切れ検知、不正トークン、別鍵署名検知)・`MaxUtf8BytesValidatorTest`(5件: ASCII境界値、マルチバイト境界値、null許容)を追加、全て成功。
 
+> **2026-08-16追記**: フェーズ1〜8完了時点のレビューで、`GlobalExceptionHandler`の例外処理網羅性(壊れたJSON・型不一致・想定外例外のフォールバック)、`SecurityConfig`へのCORS設定追加の指摘があった。詳細は[review-fixes-2026-08-16.md](review-fixes-2026-08-16.md)を参照。
+
 ## 関連ドキュメント
 
 - [`docs/機能定義書/認証機能定義書.md`](../docs/機能定義書/認証機能定義書.md)
