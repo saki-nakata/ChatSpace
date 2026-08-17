@@ -3,14 +3,7 @@ import { useNotificationStore } from "../../store/notificationStore";
 import { formatRelativeTime } from "../../lib/time";
 import type { NotificationResponse, UserResponse } from "../../api/types";
 import { useDialogA11y } from "../../lib/useDialogA11y";
-
-const TYPE_LABELS: Record<string, string> = {
-  MENTION: "メンション",
-  DM: "DM",
-  CHANNEL_INVITE: "チャンネル招待",
-  WORKSPACE_INVITE: "ワークスペース招待",
-  THREAD_REPLY: "スレッド返信",
-};
+import { NOTIFICATION_TYPE_LABELS } from "../../lib/notificationLabels";
 
 interface NotificationPanelProps {
   workspaceId: string;
@@ -113,7 +106,7 @@ export default function NotificationPanel({
               >
                 <div className="flex items-center gap-2">
                   <span className="rounded bg-slate-200 px-1.5 py-0.5 text-[10px] font-medium text-slate-600">
-                    {n.type ? (TYPE_LABELS[n.type] ?? n.type) : ""}
+                    {n.type ? (NOTIFICATION_TYPE_LABELS[n.type] ?? n.type) : ""}
                   </span>
                   <span className="text-xs text-slate-400">{n.createdAt && formatRelativeTime(n.createdAt)}</span>
                 </div>

@@ -6,6 +6,7 @@ import { usePresenceStore } from "../store/presenceStore";
 import { useWorkspaceStore } from "../store/workspaceStore";
 import { channelApi, dmApi, workspaceApi } from "../api/resources";
 import type { ChannelResponse, DmThreadResponse, UserResponse } from "../api/types";
+import { useUnreadTabTitle } from "../lib/useUnreadTabTitle";
 import TopBar from "../components/layout/TopBar";
 import Sidebar from "../components/layout/Sidebar";
 import CreateChannelModal from "../components/workspace/CreateChannelModal";
@@ -54,6 +55,12 @@ export default function WorkspaceShellPage() {
 
   const currentWorkspace = workspaces.find((w) => w.id === workspaceId);
   const isOwner = currentWorkspace?.myRole === "OWNER";
+
+  // タブタイトルの未読件数(フェーズ10)。サイドバーのバッジと同じ「現ワークスペース内の未読メッセージ数」を使う。
+  const totalUnread =
+    channels.reduce((sum, c) => sum + (c.unreadCount ?? 0), 0) +
+    dms.reduce((sum, d) => sum + (d.unreadCount ?? 0), 0);
+  useUnreadTabTitle(totalUnread);
 
   function refreshSidebar() {
     if (!workspaceId) return;

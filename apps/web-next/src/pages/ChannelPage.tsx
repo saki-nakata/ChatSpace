@@ -15,10 +15,10 @@ export default function ChannelPage() {
   const currentUser = useAuthStore((s) => s.user);
   const { channels, isOwner, refreshSidebar } = useOutletContext<WorkspaceShellContext>();
   const [searchParams] = useSearchParams();
-  // ?reply=<返信ID>&highlight=<親メッセージID>(S-12検索/S-13通知からの遷移)。replyがある場合のみ
-  // highlightを親スレッドIDとして扱いスレッドパネルを自動的に開く(単なるトップレベルメッセージへの
-  // 遷移ではスレッドを開かない)。可視化ハイライト自体はフェーズ10で対応予定。
-  const initialOpenThreadId = searchParams.get("reply") ? searchParams.get("highlight") ?? undefined : undefined;
+  // ?highlight=<ジャンプ先ID(スレッド返信の場合は親メッセージID)>&reply=<返信ID>(S-12検索/S-13通知からの遷移)。
+  // replyがある場合のみS-07スレッドパネルを自動的に開く(詳細はChatViewのjumpMessageId/jumpReplyId参照)。
+  const jumpMessageId = searchParams.get("highlight") ?? undefined;
+  const jumpReplyId = searchParams.get("reply") ?? undefined;
   // チャンネル切替時もあえてリセットしない(前チャンネルのuserMapを一時的に見せたまま新しい方に
   // 差し替える)。ヘッダーごと空にするより自然で、切替のたびに画面全体が一瞬白くなる問題を避けられる
   // (レビュー指摘対応)。ChatView自体は`scopeKey`変更で自律的にメッセージを再取得するため、
@@ -93,7 +93,9 @@ export default function ChannelPage() {
         scope={{ channelId }}
         userMap={userMap}
         placeholder="メッセージを入力..."
-        initialOpenThreadId={initialOpenThreadId}
+        jumpMessageId={jumpMessageId}
+        jumpReplyId={jumpReplyId}
+        initialUnreadCount={channel?.unreadCount ?? undefined}
         header={header}
         onRead={refreshSidebar}
       />

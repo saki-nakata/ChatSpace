@@ -3,6 +3,8 @@ import type { Cursor, NotificationResponse } from "../api/types";
 import { notificationApi } from "../api/resources";
 import { USER_EVENTS_SUBSCRIPTION } from "../realtime/destinations";
 import { subscribeJson, type RealtimeEvent } from "../realtime/stomp";
+import { showDesktopNotification } from "../lib/browserNotifications";
+import { NOTIFICATION_TYPE_LABELS } from "../lib/notificationLabels";
 
 interface NotificationState {
   notifications: NotificationResponse[];
@@ -93,6 +95,9 @@ export const useNotificationStore = create<NotificationState>((set, get) => ({
           notifications: [event.payload, ...state.notifications],
           unreadCount: state.unreadCount + 1,
         }));
+        const n = event.payload;
+        const title = n.type ? (NOTIFICATION_TYPE_LABELS[n.type] ?? n.type) : "ChatSpace";
+        showDesktopNotification(title, n.text ?? "新しい通知があります");
       },
     );
   },

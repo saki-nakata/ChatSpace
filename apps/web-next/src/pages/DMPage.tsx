@@ -10,7 +10,8 @@ export default function DMPage() {
   const { dms, refreshSidebar } = useOutletContext<WorkspaceShellContext>();
   const [searchParams] = useSearchParams();
   // ChannelPageと同じ経路(S-12検索/S-13通知からの遷移、詳細はChannelPage参照)
-  const initialOpenThreadId = searchParams.get("reply") ? searchParams.get("highlight") ?? undefined : undefined;
+  const jumpMessageId = searchParams.get("highlight") ?? undefined;
+  const jumpReplyId = searchParams.get("reply") ?? undefined;
   const me = useAuthStore((s) => s.user);
 
   if (!workspaceId || !dmId || !me) return null;
@@ -18,7 +19,8 @@ export default function DMPage() {
   // サイドバーが既に取得済みのDM一覧(WorkspaceShellContext)から相手ユーザーを解決する
   // (以前はここで個別にdmApi.list()を再フェッチしていたが、二重取得かつ切替のたびに画面が
   // 一瞬白くなる原因だったため廃止。レビュー指摘対応)。
-  const otherUser = dms.find((t) => t.id === dmId)?.otherUser ?? null;
+  const dmThread = dms.find((t) => t.id === dmId);
+  const otherUser = dmThread?.otherUser ?? null;
 
   const userMap: Record<string, UserResponse> = { [me.id!]: me };
   if (otherUser) userMap[otherUser.id!] = otherUser;
@@ -36,7 +38,9 @@ export default function DMPage() {
       scope={{ dmId }}
       userMap={userMap}
       placeholder={otherUser ? `${otherUser.displayName}さんへのメッセージ` : "メッセージを入力..."}
-      initialOpenThreadId={initialOpenThreadId}
+      jumpMessageId={jumpMessageId}
+      jumpReplyId={jumpReplyId}
+      initialUnreadCount={dmThread?.unreadCount ?? undefined}
       header={header}
       onRead={refreshSidebar}
     />

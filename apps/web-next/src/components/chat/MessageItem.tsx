@@ -19,6 +19,8 @@ interface MessageItemProps {
   onDelete: () => void;
   /** 渡された場合のみスレッド関連UI(返信ボタン・「N件の返信」リンク)を表示する(スレッドパネル内の表示では渡さない)。 */
   onOpenThread?: () => void;
+  /** 検索・通知からのジャンプ先(S-12/S-13)。背景色を点灯させ、一定時間後に自然にフェードアウトさせる。 */
+  highlighted?: boolean;
 }
 
 /** Slackのメッセージ行に倣う: グループ化時はアバター・名前を省略し、hover(640px以上)/常時(640px未満)でアクションバーを出す。 */
@@ -32,6 +34,7 @@ export default function MessageItem({
   onEdit,
   onDelete,
   onOpenThread,
+  highlighted,
 }: MessageItemProps) {
   const [showPicker, setShowPicker] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
@@ -81,7 +84,7 @@ export default function MessageItem({
 
   return (
     <div
-      className={`group relative flex flex-wrap gap-3 px-4 py-1 hover:bg-slate-50 ${grouped ? "" : "mt-2"}`}
+      className={`group relative flex flex-wrap gap-3 px-4 py-1 transition-colors duration-700 hover:bg-slate-50 ${grouped ? "" : "mt-2"} ${highlighted ? "bg-amber-100 hover:bg-amber-100" : ""}`}
       onMouseLeave={() => setShowPicker(false)}
     >
       <div className="w-9 flex-shrink-0">

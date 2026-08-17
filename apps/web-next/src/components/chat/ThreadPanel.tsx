@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { UserResponse } from "../../api/types";
 import { isSameGroup } from "../../lib/time";
 import MessageComposer from "./MessageComposer";
@@ -25,7 +25,11 @@ interface ThreadPanelProps {
   onEdit: (messageId: string, body: string) => Promise<void>;
   onDelete: (messageId: string) => void;
   mentionSource?: MentionSource;
+  /** 検索・通知からスレッド返信自体へジャンプした場合の対象ID(初回ページに含まれていればスクロール+ハイライトする)。 */
+  highlightReplyId?: string;
 }
+
+const HIGHLIGHT_DURATION_MS = 2500;
 
 /** S-07スレッドパネル(フェーズ9-C)。初期20件+「さらに20件」ボタン、WebSocket新着返信は末尾に追加する。 */
 export default function ThreadPanel({
@@ -43,12 +47,29 @@ export default function ThreadPanel({
   onEdit,
   onDelete,
   mentionSource,
+  highlightReplyId,
 }: ThreadPanelProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
+  const replyRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+  const [highlightedId, setHighlightedId] = useState<string | null>(null);
+  const handledHighlightRef = useRef<string | null>(null);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ block: "end" });
   }, [replies.length]);
+
+  // ジャンプ対象の返信が初回ページに含まれていればスクロール+ハイライトする(深い位置の返信は
+  // 「さらに読み込む」で手動到達するまで対象外、既知の割り切り)。
+  useEffect(() => {
+    if (!highlightReplyId || handledHighlightRef.current === highlightReplyId) return;
+    const el = replyRefs.current.get(highlightReplyId);
+    if (!el) return;
+    handledHighlightRef.current = highlightReplyId;
+    el.scrollIntoView({ block: "center" });
+    setHighlightedId(highlightReplyId);
+    const timer = setTimeout(() => setHighlightedId(null), HIGHLIGHT_DURATION_MS);
+    return () => clearTimeout(timer);
+  }, [highlightReplyId, replies]);
 
   return (
     <div className="flex h-full w-full flex-shrink-0 flex-col border-l border-slate-200 bg-white sm:w-96">
@@ -90,17 +111,25 @@ export default function ThreadPanel({
           <p className="px-4 py-2 text-sm text-slate-400">読み込み中...</p>
         ) : (
           replies.map((reply, i) => (
-            <MessageItem
+            <div
               key={reply.id}
-              message={reply}
-              author={userMap[reply.authorId]}
-              grouped={isSameGroup(replies[i - 1], reply)}
-              currentUserId={currentUserId}
-              userMap={userMap}
-              onToggleReaction={(emoji) => onToggleReaction(reply.id, emoji)}
-              onEdit={(body) => onEdit(reply.id, body)}
-              onDelete={() => onDelete(reply.id)}
-            />
+              ref={(el) => {
+                if (el) replyRefs.current.set(reply.id, el);
+                else replyRefs.current.delete(reply.id);
+              }}
+            >
+              <MessageItem
+                message={reply}
+                author={userMap[reply.authorId]}
+                grouped={isSameGroup(replies[i - 1], reply)}
+                currentUserId={currentUserId}
+                userMap={userMap}
+                highlighted={reply.id === highlightedId}
+                onToggleReaction={(emoji) => onToggleReaction(reply.id, emoji)}
+                onEdit={(body) => onEdit(reply.id, body)}
+                onDelete={() => onDelete(reply.id)}
+              />
+            </div>
           ))
         )}
 
