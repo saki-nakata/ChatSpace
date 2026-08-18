@@ -784,6 +784,8 @@ export interface components {
         MessageListResponse: {
             messages?: components["schemas"]["MessageResponse"][];
             nextCursor?: components["schemas"]["Cursor"];
+            /** Format: date-time */
+            callerLastReadAt?: string;
         };
         MessageContextResponse: {
             messages?: components["schemas"]["MessageResponse"][];
@@ -1654,6 +1656,7 @@ export interface operations {
             query?: {
                 cursorCreatedAt?: string;
                 cursorId?: string;
+                around?: string;
             };
             header?: never;
             path: {
@@ -1681,6 +1684,7 @@ export interface operations {
             query?: {
                 cursorCreatedAt?: string;
                 cursorId?: string;
+                around?: string;
             };
             header?: never;
             path: {

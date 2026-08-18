@@ -14,11 +14,25 @@ export default function ChannelPage() {
   const navigate = useNavigate();
   const currentUser = useAuthStore((s) => s.user);
   const { channels, isOwner, refreshSidebar } = useOutletContext<WorkspaceShellContext>();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   // ?highlight=<ジャンプ先ID(スレッド返信の場合は親メッセージID)>&reply=<返信ID>(S-12検索/S-13通知からの遷移)。
   // replyがある場合のみS-07スレッドパネルを自動的に開く(詳細はChatViewのjumpMessageId/jumpReplyId参照)。
   const jumpMessageId = searchParams.get("highlight") ?? undefined;
   const jumpReplyId = searchParams.get("reply") ?? undefined;
+
+  // ジャンプ処理完了後にURLの?highlight=/?reply=を消す(D-1: 同じ検索結果の再クリックが無反応になる問題、
+  // リロード時に古いジャンプ先へ再ジャンプしてしまう問題への対応)。
+  function handleJumpHandled() {
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete("highlight");
+        next.delete("reply");
+        return next;
+      },
+      { replace: true },
+    );
+  }
   // チャンネル切替時もあえてリセットしない(前チャンネルのuserMapを一時的に見せたまま新しい方に
   // 差し替える)。ヘッダーごと空にするより自然で、切替のたびに画面全体が一瞬白くなる問題を避けられる
   // (レビュー指摘対応)。ChatView自体は`scopeKey`変更で自律的にメッセージを再取得するため、
@@ -95,9 +109,9 @@ export default function ChannelPage() {
         placeholder="メッセージを入力..."
         jumpMessageId={jumpMessageId}
         jumpReplyId={jumpReplyId}
-        initialUnreadCount={channel?.unreadCount ?? undefined}
         header={header}
         onRead={refreshSidebar}
+        onJumpHandled={handleJumpHandled}
       />
       {membersOpen && (
         <ChannelMembersModal

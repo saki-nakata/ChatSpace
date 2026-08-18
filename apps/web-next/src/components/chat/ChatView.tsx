@@ -33,12 +33,16 @@ interface ChatViewProps {
   jumpMessageId?: string;
   /** ジャンプ対象自体がスレッド返信だった場合の返信ID(`?reply=`)。S-07を自動的に開く。 */
   jumpReplyId?: string;
-  /** スコープを開いた瞬間の未読件数(サイドバーの`unreadCount`)。未読区切り線の基準位置に使う。 */
-  initialUnreadCount?: number;
   /** S-05/S-06のヘッダー(チャンネル名+メンバー/削除ボタン、またはDM相手の表示名)。ChannelPage/DMPageが渡す。 */
   header?: ReactNode;
   /** 既読化APIを呼んだ後に呼ぶ(呼び出し元がサイドバーの未読バッジを再取得する)。 */
   onRead?: () => void;
+  /**
+   * ジャンプ(`jumpMessageId`/`jumpReplyId`)の処理が完了した後に呼ぶ(呼び出し元がURLの`?highlight=`/`?reply=`を
+   * 消す)。`jumpReplyId`が無い場合はメインリストのジャンプ処理完了時に、ある場合はThreadPanelが実際に
+   * 対象返信をハイライトした後(=返信データの取得も完了した後)に呼ばれる。
+   */
+  onJumpHandled?: () => void;
 }
 
 interface TypingPayload {
@@ -74,9 +78,9 @@ export default function ChatView({
   placeholder,
   jumpMessageId,
   jumpReplyId,
-  initialUnreadCount,
   header,
   onRead,
+  onJumpHandled,
 }: ChatViewProps) {
   const currentUserId = useAuthStore((s) => s.user?.id);
   const [messages, setMessages] = useState<DisplayMessage[]>([]);
@@ -100,9 +104,15 @@ export default function ChatView({
     mainNextCursorRef.current = mainNextCursor;
   }, [mainNextCursor]);
 
-  // 未読区切り線(スコープを開いた瞬間の既読位置を基準に固定表示)。一度計算したらそのビュー滞在中は動かさない。
-  const [unreadDividerMessageId, setUnreadDividerMessageId] = useState<string | null>(null);
-  const unreadDividerComputedRef = useRef(false);
+  // 未読区切り線(スコープを開いた瞬間の既読位置を基準に固定表示)。`messageApi.list()`の初回応答に乗ってくる
+  // `callerLastReadAt`をスコープごとに1回だけ保存する(以降は変えない、markScopeRead呼び出しの影響を受けない)。
+  const [scopeLastReadAt, setScopeLastReadAt] = useState<string | null>(null);
+  // 初回読み込み・ジャンプ用contextフェッチ・「最新に戻る」の失敗時のインラインエラー表示(Tier B)。
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [jumpError, setJumpError] = useState<string | null>(null);
+  const jumpErrorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [returnToLatestError, setReturnToLatestError] = useState<string | null>(null);
+  const [loadNonce, setLoadNonce] = useState(0);
 
   // 検索・通知からのジャンプ(S-12/S-13)。読み込み済み範囲外の対象は`/messages/{id}/context`で
   // 前後ウィンドウごと取得し直すため、firstItemIndexとVirtuosoの内部状態を安全に作り直す必要がある
@@ -116,6 +126,9 @@ export default function ChatView({
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
   const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const handledJumpRef = useRef<string | null>(null);
+  // `jumpReplyId`付きジャンプでスレッド返信を`around`付きで取得済みかどうか(スレッドを開くたびに毎回
+  // `around`を使うと、ユーザーが後で手動でスレッドを開き直した際も古いジャンプ対象に戻ってしまうため)。
+  const handledReplyJumpRef = useRef<string | null>(null);
   // ジャンプ先ウィンドウとライブ末尾の間に未読込の範囲(ギャップ)が残っている間はtrue。
   // この間はリアルタイム新着を末尾に追記しない(ギャップを挟んで時系列が壊れるのを防ぐ、upsertMessage参照)。
   const [jumpGapRemaining, setJumpGapRemaining] = useState(false);
@@ -130,6 +143,16 @@ export default function ChatView({
     highlightTimerRef.current = setTimeout(() => setHighlightedId(null), HIGHLIGHT_DURATION_MS);
   }
 
+  /**
+   * ジャンプ処理完了(呼び出し元がURLの`?highlight=`/`?reply=`を消す)。`handledJumpRef`も同時にnullへ
+   * 戻すことで、URLがクリアされた後に同じ検索結果を再クリックしても(requestKeyが同一文字列になっても)
+   * ブロックされず再度ジャンプできるようにする(D-1)。
+   */
+  function handleJumpHandled() {
+    handledJumpRef.current = null;
+    onJumpHandled?.();
+  }
+
   // S-07スレッドパネル(フェーズ9-C)。開いているスレッドの親メッセージID。
   const [openThreadId, setOpenThreadId] = useState<string | null>(null);
   const openThreadIdRef = useRef<string | null>(null);
@@ -137,7 +160,14 @@ export default function ChatView({
   const [threadLoading, setThreadLoading] = useState(false);
   const [threadLoadingMore, setThreadLoadingMore] = useState(false);
   const [threadNextCursor, setThreadNextCursor] = useState<Cursor | null>(null);
-  const openThreadMessage = openThreadId ? messages.find((m) => m.id === openThreadId) ?? null : null;
+  // ジャンプ(318行目付近)・「最新に戻る」(335行目付近)は`messages`を丸ごと差し替えるため、開いていたスレッドの
+  // 親がそこに含まれなくなることがある。`messages.find`だけに頼ると差し替え直後にパネルが無言で閉じてしまうため、
+  // 開いた時点の親メッセージをフォールバックとして保持する(`messages`に存在する間は常にそちらが優先されるため、
+  // 編集・削除・リアクションの反映は従来通り自動的に効く)。
+  const [openThreadParent, setOpenThreadParent] = useState<DisplayMessage | null>(null);
+  const openThreadMessage = openThreadId
+    ? messages.find((m) => m.id === openThreadId) ?? openThreadParent
+    : null;
 
   const upsertMessage = useCallback((incoming: DisplayMessage) => {
     setMessages((prev) => {
@@ -184,27 +214,37 @@ export default function ChatView({
     let cancelled = false;
     const timers = typingTimersRef.current;
     setLoading(true);
+    setLoadError(null);
     setTypingUserIds(new Set());
     setOpenThreadId(null);
+    setOpenThreadParent(null);
     setFirstItemIndex(FIRST_ITEM_INDEX_START);
     setUnseenCount(0);
-    setUnreadDividerMessageId(null);
+    setScopeLastReadAt(null);
     setHighlightedId(null);
     setJumpGapRemaining(false);
     setInitialTopMostIndexOverride(null);
     handledJumpRef.current = null;
-    unreadDividerComputedRef.current = false;
+    handledReplyJumpRef.current = null;
     atBottomRef.current = true;
-    messageApi.list(workspaceId, scope).then((res) => {
-      if (cancelled) return;
-      // バックエンドの初回ページ取得は無限スクロール(上方向)を見越して新しい順(DESC)で返るため、
-      // 表示は時系列順(古い順)に反転する。
-      const loaded = (res.messages as DisplayMessage[]).slice().reverse();
-      setMessages(loaded);
-      setMainNextCursor(res.nextCursor ?? null);
-      setLoading(false);
-      markScopeRead();
-    });
+    messageApi
+      .list(workspaceId, scope)
+      .then((res) => {
+        if (cancelled) return;
+        // バックエンドの初回ページ取得は無限スクロール(上方向)を見越して新しい順(DESC)で返るため、
+        // 表示は時系列順(古い順)に反転する。
+        const loaded = (res.messages as DisplayMessage[]).slice().reverse();
+        setMessages(loaded);
+        setMainNextCursor(res.nextCursor ?? null);
+        // 未読区切り線の基準(このリクエスト自身の応答に乗ってくるため、markScopeReadより必ず前に確定する)。
+        setScopeLastReadAt(res.callerLastReadAt ?? null);
+        setLoading(false);
+        markScopeRead();
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setLoadError("メッセージを読み込めませんでした。");
+      });
 
     const destination = scope.channelId
       ? channelTopic(scope.channelId)
@@ -260,28 +300,23 @@ export default function ChatView({
       unsubscribe();
       timers.forEach((timer) => clearTimeout(timer));
       timers.clear();
+      if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
+      if (jumpErrorTimerRef.current) clearTimeout(jumpErrorTimerRef.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [workspaceId, scopeKey]);
+  }, [workspaceId, scopeKey, loadNonce]);
 
   /**
-   * 未読区切り線の位置確定。`initialUnreadCount`はサイドバー(WorkspaceShellPage)側の非同期取得に
-   * 依存するプロパティのため、直リンク等でこのコンポーネントの方が先にメッセージ読み込みを終える
-   * ケースがある(親の`channels`/`dms`取得より先にChatViewが初回ページを取得し終える競合)。
-   * そのため「メッセージ読み込み完了」と「未読件数の到着」それぞれを個別に待ち、両方揃った最初の
-   * タイミングで一度だけ確定させる(`unreadDividerComputedRef`でこのスコープ内は再計算しない)。
+   * 未読区切り線の位置。`scopeLastReadAt`は`messageApi.list()`の初回応答に乗ってくる値をスコープごとに
+   * 1回だけ保存した固定値なので、新着到着・上方向の過去ログ読み込みのいずれが起きても純粋な導出のままで
+   * 安定して同じ位置を指す(以前は親コンポーネント経由のpropとの競合・件数ベースの母集団不一致があったが、
+   * 同一レスポンスから取得する形にしたことでどちらも解消している)。
    */
-  useEffect(() => {
-    if (loading || unreadDividerComputedRef.current || initialUnreadCount === undefined) return;
-    unreadDividerComputedRef.current = true;
-    if (initialUnreadCount > 0) {
-      // 未読件数が読み込み済みページを超える場合は先頭(最古)を区切り位置とする(それより古い未読は
-      // 上方向スクロールで遡らないと見えないが、区切り線自体は「ここまでは開いた時点で未読だった」という
-      // 目印として妥当なので先頭に固定する)。
-      const boundaryIndex = Math.max(0, messages.length - initialUnreadCount);
-      setUnreadDividerMessageId(messages[boundaryIndex]?.id ?? null);
-    }
-  }, [initialUnreadCount, loading, messages]);
+  const unreadDividerMessageId = useMemo(() => {
+    if (scopeLastReadAt === null) return null;
+    const cutoff = new Date(scopeLastReadAt).getTime();
+    return messages.find((m) => new Date(m.createdAt).getTime() > cutoff)?.id ?? null;
+  }, [messages, scopeLastReadAt]);
 
   /**
    * 検索結果(S-12)・通知(S-13)クリックからのジャンプ。対象が既に読み込み済みならその場でスクロール+
@@ -307,41 +342,68 @@ export default function ChatView({
         virtuosoRef.current?.scrollToIndex({ index, align: "center", behavior: "smooth" });
       });
       flashHighlight(jumpMessageId);
-      if (jumpReplyId) setOpenThreadId(jumpMessageId);
+      if (jumpReplyId) {
+        setOpenThreadId(jumpMessageId);
+        setOpenThreadParent(found);
+        // URLのクリアはThreadPanelが実際にハイライトした後(returnToMessage参照)まで待つ。
+      } else {
+        handleJumpHandled();
+      }
       return;
     }
 
     handledJumpRef.current = requestKey;
-    messageApi.context(workspaceId, scope, jumpMessageId).then((res) => {
-      const contextWindow = res.messages as DisplayMessage[];
-      const targetIndex = contextWindow.findIndex((m) => m.id === jumpMessageId);
-      setMessages(contextWindow);
-      setFirstItemIndex(FIRST_ITEM_INDEX_START);
-      setInitialTopMostIndexOverride(targetIndex >= 0 ? targetIndex : null);
-      setVirtuosoRemountKey((k) => k + 1);
-      setMainNextCursor(res.hasOlder ? res.olderCursor ?? null : null);
-      setJumpGapRemaining(!!res.hasNewer);
-      // 別ウィンドウへ切り替わるため、開いた瞬間の未読区切り線は位置の対応が取れなくなる(非表示にする)。
-      setUnreadDividerMessageId(null);
-      flashHighlight(jumpMessageId);
-      if (jumpReplyId) setOpenThreadId(jumpMessageId);
-    });
+    messageApi
+      .context(workspaceId, scope, jumpMessageId)
+      .then((res) => {
+        const contextWindow = res.messages as DisplayMessage[];
+        const targetIndex = contextWindow.findIndex((m) => m.id === jumpMessageId);
+        setMessages(contextWindow);
+        setFirstItemIndex(FIRST_ITEM_INDEX_START);
+        setInitialTopMostIndexOverride(targetIndex >= 0 ? targetIndex : null);
+        setVirtuosoRemountKey((k) => k + 1);
+        setMainNextCursor(res.hasOlder ? res.olderCursor ?? null : null);
+        setJumpGapRemaining(!!res.hasNewer);
+        // 別ウィンドウへ切り替わるため、開いた瞬間の未読区切り線は位置の対応が取れなくなる(非表示にする)。
+        setScopeLastReadAt(null);
+        flashHighlight(jumpMessageId);
+        if (jumpReplyId) {
+          setOpenThreadId(jumpMessageId);
+          setOpenThreadParent(targetIndex >= 0 ? contextWindow[targetIndex] : null);
+          // URLのクリアはThreadPanelが実際にハイライトした後まで待つ。
+        } else {
+          handleJumpHandled();
+        }
+      })
+      .catch(() => {
+        if (jumpErrorTimerRef.current) clearTimeout(jumpErrorTimerRef.current);
+        setJumpError("ジャンプ先のメッセージを表示できませんでした。");
+        jumpErrorTimerRef.current = setTimeout(() => setJumpError(null), HIGHLIGHT_DURATION_MS * 2);
+        // 取得自体が失敗しているのでURLを残しても再試行しようがない。クリアして残留を防ぐ。
+        handleJumpHandled();
+      });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [jumpMessageId, jumpReplyId, scopeKey, loading, messages]);
 
   /** ジャンプ中(読み込み済みウィンドウとライブ末尾の間にギャップがある間)に表示する「最新に戻る」導線。 */
   function handleReturnToLatest() {
-    messageApi.list(workspaceId, scope).then((res) => {
-      setMessages((res.messages as DisplayMessage[]).slice().reverse());
-      setMainNextCursor(res.nextCursor ?? null);
-      setFirstItemIndex(FIRST_ITEM_INDEX_START);
-      setInitialTopMostIndexOverride(null);
-      setVirtuosoRemountKey((k) => k + 1);
-      setJumpGapRemaining(false);
-      setUnseenCount(0);
-      setHighlightedId(null);
-      requestAnimationFrame(() => scrollToBottom("auto"));
-    });
+    setReturnToLatestError(null);
+    messageApi
+      .list(workspaceId, scope)
+      .then((res) => {
+        setMessages((res.messages as DisplayMessage[]).slice().reverse());
+        setMainNextCursor(res.nextCursor ?? null);
+        setFirstItemIndex(FIRST_ITEM_INDEX_START);
+        setInitialTopMostIndexOverride(null);
+        setVirtuosoRemountKey((k) => k + 1);
+        setJumpGapRemaining(false);
+        setUnseenCount(0);
+        setHighlightedId(null);
+        requestAnimationFrame(() => scrollToBottom("auto"));
+      })
+      .catch(() => {
+        setReturnToLatestError("最新の取得に失敗しました。もう一度お試しください。");
+      });
   }
 
   /** 上方向スクロールで先頭に到達した際、古いページを1件先読みしてprependする(react-virtuosoのstartReached)。 */
@@ -377,30 +439,58 @@ export default function ChatView({
     setUnseenCount(0);
   }
 
-  // スレッドパネルを開いた/切り替えたタイミングで初回20件を取得する(S-07)。
+  // スレッドパネルを開いた/切り替えたタイミングで返信を取得する(S-07)。検索/通知から特定の返信への
+  // ジャンプで開いた場合(`jumpReplyId`)は、初回20件では対象が含まれないことがある(21件目以降)ため、
+  // 対象を含む窓を返す`around`付きで取得する(A-2、実装計画書phase10.md参照)。
   useEffect(() => {
     openThreadIdRef.current = openThreadId;
     if (!openThreadId) {
       setThreadReplies([]);
       setThreadNextCursor(null);
+      setOpenThreadParent(null);
       return;
     }
     let cancelled = false;
     setThreadLoading(true);
-    messageApi.replies(workspaceId, scope, openThreadId).then((res) => {
-      if (cancelled) return;
-      setThreadReplies(res.messages as DisplayMessage[]);
-      setThreadNextCursor(res.nextCursor ?? null);
-      setThreadLoading(false);
-    });
+    const shouldJumpToReply =
+      !!jumpReplyId && openThreadId === jumpMessageId && handledReplyJumpRef.current !== jumpReplyId;
+    const request = shouldJumpToReply
+      ? messageApi.replies(workspaceId, scope, openThreadId, { around: jumpReplyId })
+      : messageApi.replies(workspaceId, scope, openThreadId);
+    request
+      .then((res) => {
+        if (cancelled) return;
+        setThreadReplies(res.messages as DisplayMessage[]);
+        setThreadNextCursor(res.nextCursor ?? null);
+        setThreadLoading(false);
+        if (shouldJumpToReply) handledReplyJumpRef.current = jumpReplyId ?? null;
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setThreadLoading(false);
+        if (shouldJumpToReply) {
+          // 対象返信の取得自体が失敗(削除済み等)。再試行しようがないのでURLの残留だけは防ぐ。
+          handledReplyJumpRef.current = jumpReplyId ?? null;
+          handleJumpHandled();
+        }
+      });
     return () => {
       cancelled = true;
     };
+    // jumpMessageId/jumpReplyIdは意図的にdepsから外している(クロージャで現在値を読むだけで十分で、
+    // depsに含めるとD-1でURLの?highlight=/?reply=をクリアした瞬間にもこのeffectが再実行され、
+    // 既に`around`で取得済みの返信ウィンドウが素の初回20件で上書きされてしまう)。
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [openThreadId, workspaceId, scopeKey]);
 
   async function handleSend(body: string, attachmentIds?: string[]) {
     const response = await messageApi.create(workspaceId, scope, { body, attachmentIds });
+    if (jumpGapRemainingRef.current) {
+      // ジャンプ中(ギャップ有)にupsertMessageへ渡しても未知IDとして破棄されてしまう(upsertMessage参照)ため、
+      // 最新ウィンドウを取り直す。既にPOST済みの自分の投稿もそこに含まれる形で正しく表示される。
+      handleReturnToLatest();
+      return;
+    }
     upsertMessage(response as DisplayMessage);
     // 自分の送信は(スクロールして過去ログを読んでいた場合でも)Slack同様に必ず最下部へ連れて行く
     requestAnimationFrame(() => scrollToBottom("auto"));
@@ -511,6 +601,16 @@ export default function ChatView({
         <div className="relative min-h-0 flex-1">
           {loading ? (
             <p className="px-4 py-4 text-sm text-slate-400">読み込み中...</p>
+          ) : loadError ? (
+            <div className="px-4 py-4 text-sm text-slate-500">
+              <p>{loadError}</p>
+              <button
+                onClick={() => setLoadNonce((n) => n + 1)}
+                className="mt-1 text-xs font-medium text-brand-600 hover:underline"
+              >
+                再読み込み
+              </button>
+            </div>
           ) : messages.length === 0 ? (
             <p className="px-4 py-4 text-sm text-slate-400">まだメッセージはありません。最初のメッセージを送ってみましょう。</p>
           ) : (
@@ -557,11 +657,19 @@ export default function ChatView({
                     onToggleReaction={(emoji) => handleToggleReaction(row.message.id, emoji)}
                     onEdit={(body) => handleEdit(row.message.id, body)}
                     onDelete={() => handleDelete(row.message.id, false)}
-                    onOpenThread={() => setOpenThreadId(row.message.id)}
+                    onOpenThread={() => {
+                      setOpenThreadId(row.message.id);
+                      setOpenThreadParent(row.message);
+                    }}
                   />
                 </>
               )}
             />
+          )}
+          {jumpError && (
+            <p className="absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full bg-slate-800 px-4 py-1.5 text-xs text-white shadow-md">
+              {jumpError}
+            </p>
           )}
           {unseenCount > 0 && !jumpGapRemaining && (
             <button
@@ -572,12 +680,17 @@ export default function ChatView({
             </button>
           )}
           {jumpGapRemaining && (
-            <button
-              onClick={handleReturnToLatest}
-              className="absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full bg-brand-600 px-4 py-1.5 text-xs font-medium text-white shadow-md hover:bg-brand-700"
-            >
-              ジャンプ中 · 最新のメッセージに戻る ↓
-            </button>
+            <div className="absolute bottom-3 left-1/2 flex -translate-x-1/2 flex-col items-center gap-1">
+              <button
+                onClick={handleReturnToLatest}
+                className="rounded-full bg-brand-600 px-4 py-1.5 text-xs font-medium text-white shadow-md hover:bg-brand-700"
+              >
+                ジャンプ中 · 最新のメッセージに戻る ↓
+              </button>
+              {returnToLatestError && (
+                <p className="rounded bg-white px-2 py-0.5 text-xs text-red-600 shadow">{returnToLatestError}</p>
+              )}
+            </div>
           )}
         </div>
         {typingNames.length > 0 && (
@@ -610,6 +723,7 @@ export default function ChatView({
           onDelete={(messageId) => handleDelete(messageId, messageId !== openThreadId)}
           mentionSource={mentionSource}
           highlightReplyId={jumpReplyId && openThreadId === jumpMessageId ? jumpReplyId : undefined}
+          onHighlighted={handleJumpHandled}
         />
       )}
     </div>

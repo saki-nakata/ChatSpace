@@ -1,6 +1,8 @@
 package com.chatspace.api.message;
 
 import com.chatspace.api.channel.ChannelAuthorizationService;
+import com.chatspace.api.channel.ChannelMember;
+import com.chatspace.api.channel.ChannelMemberRepository;
 import com.chatspace.api.common.BadRequestException;
 import com.chatspace.api.common.Cursor;
 import com.chatspace.api.common.ForbiddenException;
@@ -39,10 +41,19 @@ public class MessageService {
   private static final int REPLY_PAGE_SIZE = 20;
   private static final int CONTEXT_HALF_SIZE = 25;
 
+  /**
+   * ジャンプ対象の返信を含む窓の上限。対象自身はDESC境界のため上限に関わらず必ず含まれるが、上限より前の返信は
+   * 取得されず、かつ返信のページングは前方(新しい方向)のみで「さらに古い返信を読み込む」導線が無いため到達不能に
+   * なる。300件を超えるスレッド返信はこのアプリの現実的な使用範囲では起きない想定で、上限到達時のUI追加(hasOlder
+   * 相当のAPI拡張・ThreadPanel側の後方ページング)はスコープ外とする(実装計画書phase10.md参照)。
+   */
+  private static final int REPLY_JUMP_MAX_SIZE = 300;
+
   private final MessageRepository messageRepository;
   private final ReactionRepository reactionRepository;
   private final AttachmentRepository attachmentRepository;
   private final DmThreadRepository dmThreadRepository;
+  private final ChannelMemberRepository channelMemberRepository;
   private final MentionResolver mentionResolver;
   private final NotificationService notificationService;
   private final RealtimeEventPublisher realtimeEventPublisher;
@@ -54,6 +65,7 @@ public class MessageService {
       ReactionRepository reactionRepository,
       AttachmentRepository attachmentRepository,
       DmThreadRepository dmThreadRepository,
+      ChannelMemberRepository channelMemberRepository,
       MentionResolver mentionResolver,
       NotificationService notificationService,
       RealtimeEventPublisher realtimeEventPublisher,
@@ -63,6 +75,7 @@ public class MessageService {
     this.reactionRepository = reactionRepository;
     this.attachmentRepository = attachmentRepository;
     this.dmThreadRepository = dmThreadRepository;
+    this.channelMemberRepository = channelMemberRepository;
     this.mentionResolver = mentionResolver;
     this.notificationService = notificationService;
     this.realtimeEventPublisher = realtimeEventPublisher;
@@ -234,13 +247,33 @@ public class MessageService {
   public MessageListResponse list(
       UUID channelId, UUID dmId, UUID callerId, Instant cursorCreatedAt, UUID cursorId) {
     requireScopeAccess(channelId, dmId, callerId);
+    boolean firstPage = cursorCreatedAt == null || cursorId == null;
     Pageable pageable = PageRequest.of(0, LIST_PAGE_SIZE);
     List<Message> messages =
-        (cursorCreatedAt == null || cursorId == null)
+        firstPage
             ? messageRepository.findTopLevelFirstPage(channelId, dmId, pageable)
             : messageRepository.findTopLevelOlderThan(
                 channelId, dmId, cursorCreatedAt, cursorId, pageable);
-    return toListResponse(messages, callerId, messages.size() == LIST_PAGE_SIZE);
+    // callerLastReadAtは未読区切り線の基準として初回ページでのみ意味を持つため、ページング継続時は
+    // 無駄なDB往復を避けて問い合わせ自体をスキップする(MessageListResponseのJavadoc参照)。
+    Instant callerLastReadAt = firstPage ? resolveLastReadAt(channelId, dmId, callerId) : null;
+    return toListResponse(messages, callerId, messages.size() == LIST_PAGE_SIZE, callerLastReadAt);
+  }
+
+  /**
+   * 呼び出し元(自分)のスコープ内既読位置(未読区切り線の基準)。{@code requireScopeAccess}が内部で呼ぶ {@code
+   * ChannelAuthorizationService.requireChannelMember}は{@code ChannelMember}存在検証のためだけに
+   * リポジトリを呼んで結果を捨てて{@code Channel}を返すため、ここで改めて問い合わせる必要がある。
+   */
+  private Instant resolveLastReadAt(UUID channelId, UUID dmId, UUID callerId) {
+    if (channelId != null) {
+      return channelMemberRepository
+          .findByChannelIdAndUserId(channelId, callerId)
+          .map(ChannelMember::getLastReadAt)
+          .orElse(null);
+    }
+    DmThread thread = dmThreadRepository.findById(dmId).orElseThrow(this::notFound);
+    return callerId.equals(thread.getUserAId()) ? thread.getLastReadAtA() : thread.getLastReadAtB();
   }
 
   @Transactional(readOnly = true)
@@ -261,14 +294,43 @@ public class MessageService {
             ? messageRepository.findRepliesFirstPage(parentMessageId, pageable)
             : messageRepository.findRepliesAfterCursor(
                 parentMessageId, cursorCreatedAt, cursorId, pageable);
-    return toListResponse(replies, callerId, replies.size() == REPLY_PAGE_SIZE);
+    return toListResponse(replies, callerId, replies.size() == REPLY_PAGE_SIZE, null);
+  }
+
+  /** 検索/通知からスレッド返信へジャンプする際、対象返信を含む窓を取得する(21件目以降の返信への ジャンプに対応するための新設エンドポイント、実装計画書phase10.md参照)。 */
+  @Transactional(readOnly = true)
+  public MessageListResponse listRepliesAround(
+      UUID channelId, UUID dmId, UUID parentMessageId, UUID aroundReplyId, UUID callerId) {
+    requireScopeAccess(channelId, dmId, callerId);
+    Message parent = messageRepository.findById(parentMessageId).orElseThrow(this::notFound);
+    MessageScopeGuard.assertInScope(parent, channelId, dmId);
+    Message target = messageRepository.findById(aroundReplyId).orElseThrow(this::notFound);
+    if (target.getParent() == null || !target.getParent().getId().equals(parentMessageId)) {
+      // confused-deputy対策: 対象返信が指定した親の配下でなければ存在自体を教えない(404で統一)
+      throw notFound();
+    }
+
+    Pageable windowPage = PageRequest.of(0, REPLY_JUMP_MAX_SIZE);
+    List<Message> descWindow =
+        messageRepository.findRepliesUpToAndIncludingDesc(
+            parentMessageId, target.getCreatedAt(), target.getId(), windowPage);
+    List<Message> replies = new ArrayList<>(descWindow);
+    Collections.reverse(replies);
+
+    Pageable one = PageRequest.of(0, 1);
+    boolean hasMore =
+        !messageRepository
+            .findRepliesAfterCursor(parentMessageId, target.getCreatedAt(), target.getId(), one)
+            .isEmpty();
+    Cursor nextCursor = hasMore ? cursorOf(target) : null;
+    return new MessageListResponse(toResponses(replies, callerId), nextCursor, null);
   }
 
   private MessageListResponse toListResponse(
-      List<Message> messages, UUID callerId, boolean mayHaveMore) {
+      List<Message> messages, UUID callerId, boolean mayHaveMore, Instant callerLastReadAt) {
     Cursor nextCursor =
         mayHaveMore && !messages.isEmpty() ? cursorOf(messages.get(messages.size() - 1)) : null;
-    return new MessageListResponse(toResponses(messages, callerId), nextCursor);
+    return new MessageListResponse(toResponses(messages, callerId), nextCursor, callerLastReadAt);
   }
 
   @Transactional(readOnly = true)

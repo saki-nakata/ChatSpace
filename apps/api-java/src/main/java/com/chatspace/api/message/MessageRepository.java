@@ -98,6 +98,21 @@ public interface MessageRepository extends JpaRepository<Message, UUID> {
       @Param("cursorId") UUID cursorId,
       Pageable pageable);
 
+  /**
+   * 検索/通知ジャンプ用、対象返信を含む窓の取得(新しい順)。{@code getContext}の「older半分」
+   * (`findTopLevelOlderThan`)と同じ形で、対象自身を境界条件(`<=`)に含めてDESCで取得しサービス層で反転する。
+   * ASC+LIMITだと対象が上限より後ろにある場合に対象自身が結果から漏れるため、必ずこの向きで取得すること。
+   */
+  @Query(
+      "SELECT m FROM Message m WHERE m.parent.id = :parentId AND (m.createdAt <"
+          + " :targetCreatedAt OR (m.createdAt = :targetCreatedAt AND m.id <= :targetId)) ORDER"
+          + " BY m.createdAt DESC, m.id DESC")
+  List<Message> findRepliesUpToAndIncludingDesc(
+      @Param("parentId") UUID parentId,
+      @Param("targetCreatedAt") Instant targetCreatedAt,
+      @Param("targetId") UUID targetId,
+      Pageable pageable);
+
   /** トップレベルメッセージ一覧表示時の「返信N件」バッジ用、親IDごとの返信数をまとめて取得する(N+1回避)。 */
   @Query(
       "SELECT m.parent.id AS parentId, COUNT(m) AS count FROM Message m WHERE m.parent.id IN :parentIds GROUP BY m.parent.id")

@@ -89,8 +89,12 @@ public class MessageController {
       @PathVariable UUID messageId,
       @RequestParam(required = false) Instant cursorCreatedAt,
       @RequestParam(required = false) UUID cursorId,
+      @RequestParam(required = false) UUID around,
       @CurrentUser UUID userId) {
     requireScopeAccess(workspaceId, channelId, dmId, userId);
+    if (around != null) {
+      return messageService.listRepliesAround(channelId, dmId, messageId, around, userId);
+    }
     return messageService.listReplies(
         channelId, dmId, messageId, userId, cursorCreatedAt, cursorId);
   }

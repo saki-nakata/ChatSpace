@@ -80,6 +80,43 @@ class MessageScopeAuthorizationTest extends AbstractIntegrationTest {
         .andExpect(status().isNotFound());
   }
 
+  /**
+   * AUTH-P01の派生: 検索/通知ジャンプ用の`around`パラメータ(スレッド返信ジャンプ、フェーズ10で追加)に、
+   * 無関係な(非参加の)プライベートチャンネルの返信IDを渡しても404になること(confused-deputy対策)。
+   */
+  @Test
+  void crossChannelAroundReplyId_returns404() throws Exception {
+    User owner = fixtures.createUser();
+    Workspace workspace = fixtures.createWorkspaceWithOwner(owner);
+    User attacker = fixtures.createUser();
+    fixtures.addWorkspaceMember(workspace, attacker, WorkspaceRole.MEMBER);
+
+    Channel ownChannel = fixtures.createChannel(workspace, ChannelType.PUBLIC, owner, attacker);
+    Message ownParent =
+        messageRepository.save(
+            new Message(ownChannel.getId(), null, null, owner.getId(), "parent"));
+
+    Channel otherChannel =
+        fixtures.createChannel(workspace, ChannelType.PRIVATE, owner); // attackerは非参加
+    Message otherParent =
+        messageRepository.save(
+            new Message(otherChannel.getId(), null, null, owner.getId(), "secret parent"));
+    Message otherReply =
+        messageRepository.save(
+            new Message(otherChannel.getId(), null, otherParent, owner.getId(), "secret reply"));
+
+    mockMvc
+        .perform(
+            get(
+                    "/workspaces/{workspaceId}/channels/{channelId}/messages/{messageId}/replies?around={around}",
+                    workspace.getId(),
+                    ownChannel.getId(),
+                    ownParent.getId(),
+                    otherReply.getId())
+                .cookie(fixtures.authCookie(attacker)))
+        .andExpect(status().isNotFound());
+  }
+
   /** AUTH-P02: 正当なスコープ経由であれば同じ操作が成功すること(AUTH-P01の過剰ブロック検証)。 */
   @Test
   void legitimateScopedMessageId_allEndpoints_succeed() throws Exception {

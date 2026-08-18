@@ -1225,6 +1225,14 @@
             "type" : "string",
             "format" : "uuid"
           }
+        }, {
+          "name" : "around",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "string",
+            "format" : "uuid"
+          }
         } ],
         "responses" : {
           "200" : {
@@ -1278,6 +1286,14 @@
           }
         }, {
           "name" : "cursorId",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "string",
+            "format" : "uuid"
+          }
+        }, {
+          "name" : "around",
           "in" : "query",
           "required" : false,
           "schema" : {
@@ -2109,6 +2125,10 @@
           },
           "nextCursor" : {
             "$ref" : "#/components/schemas/Cursor"
+          },
+          "callerLastReadAt" : {
+            "type" : "string",
+            "format" : "date-time"
           }
         }
       },

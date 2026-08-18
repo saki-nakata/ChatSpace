@@ -111,9 +111,9 @@ export const messageApi = {
     workspaceId: string,
     scope: { channelId?: string; dmId?: string },
     messageId: string,
-    cursor?: { cursorCreatedAt?: string; cursorId?: string },
+    query?: { cursorCreatedAt?: string; cursorId?: string; around?: string },
   ) =>
-    api.get<MessageListResponse>(`${messagesBasePath(workspaceId, scope)}/${messageId}/replies`, cursor),
+    api.get<MessageListResponse>(`${messagesBasePath(workspaceId, scope)}/${messageId}/replies`, query),
   toggleReaction: (
     workspaceId: string,
     scope: { channelId?: string; dmId?: string },

@@ -25,8 +25,13 @@ interface ThreadPanelProps {
   onEdit: (messageId: string, body: string) => Promise<void>;
   onDelete: (messageId: string) => void;
   mentionSource?: MentionSource;
-  /** 検索・通知からスレッド返信自体へジャンプした場合の対象ID(初回ページに含まれていればスクロール+ハイライトする)。 */
+  /**
+   * 検索・通知からスレッド返信自体へジャンプした場合の対象ID。ChatViewが`around`付きで取得するため
+   * 常に`replies`に含まれる(A-2)。
+   */
   highlightReplyId?: string;
+  /** `highlightReplyId`を実際にスクロール+ハイライトした直後に呼ぶ(呼び出し元がURLのジャンプ用パラメータを消す)。 */
+  onHighlighted?: () => void;
 }
 
 const HIGHLIGHT_DURATION_MS = 2500;
@@ -48,28 +53,48 @@ export default function ThreadPanel({
   onDelete,
   mentionSource,
   highlightReplyId,
+  onHighlighted,
 }: ThreadPanelProps) {
+  const containerRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const replyRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
   const handledHighlightRef = useRef<string | null>(null);
+  // 最下部付近にいる間だけ新着返信・追加読み込みへ自動追従する(古い返信を読んでいる最中に新着で
+  // 引き剥がされないようにする、D-4)。
+  const atBottomRef = useRef(true);
+
+  function handleScroll() {
+    const el = containerRef.current;
+    if (!el) return;
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    atBottomRef.current = distanceFromBottom < 80;
+  }
 
   useEffect(() => {
+    if (!atBottomRef.current) return;
     bottomRef.current?.scrollIntoView({ block: "end" });
   }, [replies.length]);
 
-  // ジャンプ対象の返信が初回ページに含まれていればスクロール+ハイライトする(深い位置の返信は
-  // 「さらに読み込む」で手動到達するまで対象外、既知の割り切り)。
+  // ジャンプ対象の返信をスクロール+ハイライトする。ChatViewが`around`付きで取得するため、深い位置の
+  // 返信でも`replies`に含まれている(A-2)。
   useEffect(() => {
-    if (!highlightReplyId || handledHighlightRef.current === highlightReplyId) return;
+    if (!highlightReplyId) {
+      // ジャンプ完了後にChatView側がURLの?highlight=/?reply=をクリアするとundefinedになる。ここで
+      // dedup用refもリセットしておかないと、同じ返信への再ジャンプ(再クリック)がブロックされ続ける(D-1)。
+      handledHighlightRef.current = null;
+      return;
+    }
+    if (handledHighlightRef.current === highlightReplyId) return;
     const el = replyRefs.current.get(highlightReplyId);
     if (!el) return;
     handledHighlightRef.current = highlightReplyId;
     el.scrollIntoView({ block: "center" });
     setHighlightedId(highlightReplyId);
+    onHighlighted?.();
     const timer = setTimeout(() => setHighlightedId(null), HIGHLIGHT_DURATION_MS);
     return () => clearTimeout(timer);
-  }, [highlightReplyId, replies]);
+  }, [highlightReplyId, replies, onHighlighted]);
 
   return (
     <div className="flex h-full w-full flex-shrink-0 flex-col border-l border-slate-200 bg-white sm:w-96">
@@ -90,7 +115,7 @@ export default function ThreadPanel({
           ✕
         </button>
       </div>
-      <div className="flex-1 overflow-y-auto py-2">
+      <div ref={containerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto py-2">
         <MessageItem
           message={parentMessage}
           author={userMap[parentMessage.authorId]}

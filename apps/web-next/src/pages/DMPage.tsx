@@ -8,11 +8,24 @@ import type { WorkspaceShellContext } from "./WorkspaceShellPage";
 export default function DMPage() {
   const { workspaceId, dmId } = useParams<{ workspaceId: string; dmId: string }>();
   const { dms, refreshSidebar } = useOutletContext<WorkspaceShellContext>();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   // ChannelPageと同じ経路(S-12検索/S-13通知からの遷移、詳細はChannelPage参照)
   const jumpMessageId = searchParams.get("highlight") ?? undefined;
   const jumpReplyId = searchParams.get("reply") ?? undefined;
   const me = useAuthStore((s) => s.user);
+
+  // D-1: ジャンプ処理完了後にURLの?highlight=/?reply=を消す(ChannelPage参照)。
+  function handleJumpHandled() {
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete("highlight");
+        next.delete("reply");
+        return next;
+      },
+      { replace: true },
+    );
+  }
 
   if (!workspaceId || !dmId || !me) return null;
 
@@ -40,9 +53,9 @@ export default function DMPage() {
       placeholder={otherUser ? `${otherUser.displayName}さんへのメッセージ` : "メッセージを入力..."}
       jumpMessageId={jumpMessageId}
       jumpReplyId={jumpReplyId}
-      initialUnreadCount={dmThread?.unreadCount ?? undefined}
       header={header}
       onRead={refreshSidebar}
+      onJumpHandled={handleJumpHandled}
     />
   );
 }
