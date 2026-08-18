@@ -69,7 +69,7 @@ export default function WorkspaceShellPage() {
   }
 
   useEffect(() => {
-    if (!workspaceId) return;
+    if (!workspaceId || !user?.id) return;
     refreshSidebar();
     fetchInitialPresence(workspaceId);
     fetchUnreadCount();
@@ -82,13 +82,13 @@ export default function WorkspaceShellPage() {
       setMemberMap(map);
     });
     const unsubscribePresence = subscribePresence(workspaceId);
-    const unsubscribeNotifications = subscribeNotifications();
+    const unsubscribeNotifications = subscribeNotifications(user.id);
     return () => {
       unsubscribePresence();
       unsubscribeNotifications();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [workspaceId]);
+  }, [workspaceId, user?.id]);
 
   if (!workspaceId || !user) return null;
 

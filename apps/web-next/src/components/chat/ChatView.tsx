@@ -243,6 +243,7 @@ export default function ChatView({
       })
       .catch(() => {
         if (cancelled) return;
+        setLoading(false);
         setLoadError("メッセージを読み込めませんでした。");
       });
 
@@ -310,13 +311,20 @@ export default function ChatView({
    * 未読区切り線の位置。`scopeLastReadAt`は`messageApi.list()`の初回応答に乗ってくる値をスコープごとに
    * 1回だけ保存した固定値なので、新着到着・上方向の過去ログ読み込みのいずれが起きても純粋な導出のままで
    * 安定して同じ位置を指す(以前は親コンポーネント経由のpropとの競合・件数ベースの母集団不一致があったが、
-   * 同一レスポンスから取得する形にしたことでどちらも解消している)。
+   * 同一レスポンスから取得する形にしたことでどちらも解消している)。バックエンドの未読件数
+   * (`MessageRepository.countUnreadInChannel(s)`)は自分の投稿・削除済みを除外しているため、区切り線の
+   * 判定条件もそれに合わせる(揃えないと、自分が投稿して離脱・復帰しただけでバッジは0なのに自分の投稿の前に
+   * 「未読」が出てしまう)。
    */
   const unreadDividerMessageId = useMemo(() => {
     if (scopeLastReadAt === null) return null;
     const cutoff = new Date(scopeLastReadAt).getTime();
-    return messages.find((m) => new Date(m.createdAt).getTime() > cutoff)?.id ?? null;
-  }, [messages, scopeLastReadAt]);
+    return (
+      messages.find(
+        (m) => new Date(m.createdAt).getTime() > cutoff && m.authorId !== currentUserId && !m.deleted,
+      )?.id ?? null
+    );
+  }, [messages, scopeLastReadAt, currentUserId]);
 
   /**
    * 検索結果(S-12)・通知(S-13)クリックからのジャンプ。対象が既に読み込み済みならその場でスクロール+
@@ -353,9 +361,14 @@ export default function ChatView({
     }
 
     handledJumpRef.current = requestKey;
+    // スコープ切替・別ジャンプ要求で上書きされる前に、この取得が今も「現在の」要求かをcontext取得の
+    // 応答時に照合する(取得中に別チャンネルへ移動したり、別の検索結果を続けてクリックした場合に、
+    // 古い応答が後から現在のmessagesを上書きしてしまう競合を防ぐ)。
+    let cancelled = false;
     messageApi
       .context(workspaceId, scope, jumpMessageId)
       .then((res) => {
+        if (cancelled) return;
         const contextWindow = res.messages as DisplayMessage[];
         const targetIndex = contextWindow.findIndex((m) => m.id === jumpMessageId);
         setMessages(contextWindow);
@@ -376,12 +389,16 @@ export default function ChatView({
         }
       })
       .catch(() => {
+        if (cancelled) return;
         if (jumpErrorTimerRef.current) clearTimeout(jumpErrorTimerRef.current);
         setJumpError("ジャンプ先のメッセージを表示できませんでした。");
         jumpErrorTimerRef.current = setTimeout(() => setJumpError(null), HIGHLIGHT_DURATION_MS * 2);
         // 取得自体が失敗しているのでURLを残しても再試行しようがない。クリアして残留を防ぐ。
         handleJumpHandled();
       });
+    return () => {
+      cancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [jumpMessageId, jumpReplyId, scopeKey, loading, messages]);
 

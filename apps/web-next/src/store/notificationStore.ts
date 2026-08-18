@@ -5,7 +5,6 @@ import { USER_EVENTS_SUBSCRIPTION } from "../realtime/destinations";
 import { subscribeJson, type RealtimeEvent } from "../realtime/stomp";
 import { showDesktopNotification } from "../lib/browserNotifications";
 import { NOTIFICATION_TYPE_LABELS } from "../lib/notificationLabels";
-import { useAuthStore } from "./authStore";
 
 interface NotificationState {
   notifications: NotificationResponse[];
@@ -22,17 +21,26 @@ interface NotificationState {
   loadMoreNotifications: () => Promise<void>;
   markRead: (notificationId: string) => Promise<void>;
   markAllRead: () => Promise<void>;
-  /** `/user/queue/events`経由のNOTIFICATIONイベントを購読する。戻り値の関数で購読解除する。 */
-  subscribeRealtime: () => () => void;
+  /**
+   * `/user/queue/events`経由のNOTIFICATIONイベントを購読する。戻り値の関数で購読解除する。
+   * `userId`はタブが非表示・非フォーカス時のデスクトップ通知のON/OFF判定に使う(ユーザー単位の設定、D-3)。
+   */
+  subscribeRealtime: (userId: string) => () => void;
+  /** ログアウト時・別ユーザーでのログイン時に呼ぶ(authStore参照)。前のユーザーの通知が残るのを防ぐ。 */
+  reset: () => void;
 }
 
-export const useNotificationStore = create<NotificationState>((set, get) => ({
-  notifications: [],
+const INITIAL_STATE = {
+  notifications: [] as NotificationResponse[],
   unreadCount: 0,
-  nextCursor: null,
+  nextCursor: null as Cursor | null,
   loaded: false,
   loading: false,
   loadingMore: false,
+};
+
+export const useNotificationStore = create<NotificationState>((set, get) => ({
+  ...INITIAL_STATE,
 
   fetchUnreadCount: async () => {
     const counts = await notificationApi.unreadCount();
@@ -86,7 +94,7 @@ export const useNotificationStore = create<NotificationState>((set, get) => ({
     await get().fetchUnreadCount();
   },
 
-  subscribeRealtime: () => {
+  subscribeRealtime: (userId) => {
     return subscribeJson<NotificationResponse>(
       USER_EVENTS_SUBSCRIPTION,
       (event: RealtimeEvent<NotificationResponse>) => {
@@ -97,9 +105,10 @@ export const useNotificationStore = create<NotificationState>((set, get) => ({
         }));
         const n = event.payload;
         const title = n.type ? (NOTIFICATION_TYPE_LABELS[n.type] ?? n.type) : "ChatSpace";
-        const userId = useAuthStore.getState().user?.id;
-        if (userId) showDesktopNotification(userId, title, n.text ?? "新しい通知があります");
+        showDesktopNotification(userId, title, n.text ?? "新しい通知があります");
       },
     );
   },
+
+  reset: () => set({ ...INITIAL_STATE }),
 }));
