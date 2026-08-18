@@ -33,15 +33,18 @@ export default function ProfileModal({ onClose, restoreFocusTo }: ProfileModalPr
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [desktopNotifEnabled, setDesktopNotifEnabled] = useState(() => isDesktopNotificationsEnabled());
+  const [desktopNotifEnabled, setDesktopNotifEnabled] = useState(
+    () => !!user?.id && isDesktopNotificationsEnabled(user.id),
+  );
   const [desktopNotifError, setDesktopNotifError] = useState<string | null>(null);
 
   if (!user) return null;
 
   async function handleToggleDesktopNotif() {
+    if (!user?.id) return;
     setDesktopNotifError(null);
     if (desktopNotifEnabled) {
-      disableDesktopNotifications();
+      disableDesktopNotifications(user.id);
       setDesktopNotifEnabled(false);
       return;
     }
@@ -49,7 +52,7 @@ export default function ProfileModal({ onClose, restoreFocusTo }: ProfileModalPr
       setDesktopNotifError("ブラウザの通知が拒否されています。ブラウザのサイト設定から許可してください。");
       return;
     }
-    const granted = await enableDesktopNotifications();
+    const granted = await enableDesktopNotifications(user.id);
     setDesktopNotifEnabled(granted);
     if (!granted) setDesktopNotifError("通知が許可されませんでした。");
   }
