@@ -9,6 +9,7 @@ interface SearchModalProps {
   userMap: Record<string, UserResponse>;
   onClose: () => void;
   onNavigateToMessage: (target: {
+    workspaceId: string;
     channelId?: string | null;
     dmId?: string | null;
     highlightId: string;
@@ -80,6 +81,7 @@ export default function SearchModal({
     if (!item.id) return;
     onClose();
     onNavigateToMessage({
+      workspaceId,
       channelId: item.channelId,
       dmId: item.dmId,
       highlightId: item.parentId ?? item.id,

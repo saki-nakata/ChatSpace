@@ -1,12 +1,12 @@
-import { useEffect, useId, useRef } from "react";
+import { useEffect, useId, useMemo, useRef } from "react";
 import { useNotificationStore } from "../../store/notificationStore";
+import { useWorkspaceStore } from "../../store/workspaceStore";
 import { formatRelativeTime } from "../../lib/time";
 import type { NotificationResponse, UserResponse } from "../../api/types";
 import { useDialogA11y } from "../../lib/useDialogA11y";
 import { NOTIFICATION_TYPE_LABELS } from "../../lib/notificationLabels";
 
 interface NotificationPanelProps {
-  workspaceId: string;
   userMap: Record<string, UserResponse>;
   open: boolean;
   onClose: () => void;
@@ -15,12 +15,14 @@ interface NotificationPanelProps {
 }
 
 /**
- * S-13通知パネル。画面設計書の要件により、パネルを閉じてもタブを閉じるまでは取得済み一覧・
- * スクロール位置を保持する必要があるため、`open=false`でも(トグルボタンを一度でも押した後は)
- * コンポーネント自体はアンマウントせず`hidden`クラスで隠すだけにする(呼び出し元のTopBar参照)。
+ * S-13通知パネル。全ワークスペース分をまとめて表示する(Tier C、B'案。このアプリには常時表示の
+ * ワークスペース切り替えUIが無く、ベルバッジ以外に「今見ていないワークスペースで何か起きた」ことを
+ * 知る手段が無いため、ベルバッジ(元々グローバル集計)に合わせてパネル・デスクトップ通知もグローバルにした)。
+ * 画面設計書の要件により、パネルを閉じてもタブを閉じるまでは取得済み一覧・スクロール位置を保持する必要が
+ * あるため、`open=false`でも(トグルボタンを一度でも押した後は)コンポーネント自体はアンマウントせず
+ * `hidden`クラスで隠すだけにする(呼び出し元のTopBar参照)。
  */
 export default function NotificationPanel({
-  workspaceId,
   userMap,
   open,
   onClose,
@@ -36,12 +38,17 @@ export default function NotificationPanel({
   const loadMoreNotifications = useNotificationStore((s) => s.loadMoreNotifications);
   const markRead = useNotificationStore((s) => s.markRead);
   const markAllRead = useNotificationStore((s) => s.markAllRead);
+  const workspaces = useWorkspaceStore((s) => s.workspaces);
+  const workspaceNameById = useMemo(
+    () => new Map(workspaces.map((w) => [w.id, w.name])),
+    [workspaces],
+  );
   const sentinelRef = useRef<HTMLDivElement>(null);
   const dialogRef = useDialogA11y<HTMLDivElement>(open, onClose, restoreFocusTo);
 
   useEffect(() => {
-    if (open) fetchNotifications(workspaceId);
-  }, [open, workspaceId, fetchNotifications]);
+    if (open) fetchNotifications();
+  }, [open, fetchNotifications]);
 
   // パネル下端に近づいたタイミングで次の50件を取得する(画面設計書S-13、パネル内無限スクロール)
   useEffect(() => {
@@ -82,7 +89,7 @@ export default function NotificationPanel({
           通知
         </h2>
         <button
-          onClick={() => markAllRead(workspaceId)}
+          onClick={() => markAllRead()}
           className="text-xs font-medium text-brand-600 hover:underline"
         >
           すべて既読にする
@@ -108,7 +115,14 @@ export default function NotificationPanel({
                   <span className="rounded bg-slate-200 px-1.5 py-0.5 text-[10px] font-medium text-slate-600">
                     {n.type ? (NOTIFICATION_TYPE_LABELS[n.type] ?? n.type) : ""}
                   </span>
-                  <span className="text-xs text-slate-400">{n.createdAt && formatRelativeTime(n.createdAt)}</span>
+                  {n.workspaceId && workspaceNameById.get(n.workspaceId) && (
+                    <span className="truncate text-[10px] text-slate-400">
+                      {workspaceNameById.get(n.workspaceId)}
+                    </span>
+                  )}
+                  <span className="ml-auto shrink-0 text-xs text-slate-400">
+                    {n.createdAt && formatRelativeTime(n.createdAt)}
+                  </span>
                 </div>
                 <p className="mt-1 text-sm text-slate-700">
                   {n.text ?? `${actor?.displayName ?? "誰か"}さんからの通知`}

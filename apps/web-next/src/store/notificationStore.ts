@@ -5,22 +5,23 @@ import { USER_EVENTS_SUBSCRIPTION } from "../realtime/destinations";
 import { subscribeJson, type RealtimeEvent } from "../realtime/stomp";
 import { showDesktopNotification } from "../lib/browserNotifications";
 import { NOTIFICATION_TYPE_LABELS } from "../lib/notificationLabels";
+import { useAuthStore } from "./authStore";
 
 interface NotificationState {
   notifications: NotificationResponse[];
   unreadCount: number;
   nextCursor: Cursor | null;
-  /** どのワークスペース向けに`notifications`を取得済みか。ワークスペース切り替え時のみ再取得する
-   * (画面設計書S-13: パネルを閉じても同一セッション中は再取得しない)。 */
-  loadedForWorkspaceId: string | null;
+  /** `notifications`を取得済みか。常に全ワークスペース分をまとめて扱う(Tier C、B'案)ため、
+   * ワークスペース切り替えでは再取得しない(セッション中1回だけ取得)。 */
+  loaded: boolean;
   loading: boolean;
   loadingMore: boolean;
   fetchUnreadCount: () => Promise<void>;
-  /** 初回取得。同一workspaceIdで取得済みなら何もしない(`force`指定時は強制再取得)。 */
-  fetchNotifications: (workspaceId: string, force?: boolean) => Promise<void>;
+  /** 初回取得。取得済みなら何もしない(`force`指定時は強制再取得)。 */
+  fetchNotifications: (force?: boolean) => Promise<void>;
   loadMoreNotifications: () => Promise<void>;
   markRead: (notificationId: string) => Promise<void>;
-  markAllRead: (workspaceId?: string) => Promise<void>;
+  markAllRead: () => Promise<void>;
   /** `/user/queue/events`経由のNOTIFICATIONイベントを購読する。戻り値の関数で購読解除する。 */
   subscribeRealtime: () => () => void;
 }
@@ -29,7 +30,7 @@ export const useNotificationStore = create<NotificationState>((set, get) => ({
   notifications: [],
   unreadCount: 0,
   nextCursor: null,
-  loadedForWorkspaceId: null,
+  loaded: false,
   loading: false,
   loadingMore: false,
 
@@ -38,24 +39,23 @@ export const useNotificationStore = create<NotificationState>((set, get) => ({
     set({ unreadCount: counts.unreadCount ?? 0 });
   },
 
-  fetchNotifications: async (workspaceId, force = false) => {
-    if (!force && get().loadedForWorkspaceId === workspaceId) return;
+  fetchNotifications: async (force = false) => {
+    if (!force && get().loaded) return;
     set({ loading: true });
-    const res = await notificationApi.list({ workspaceId });
+    const res = await notificationApi.list({});
     set({
       notifications: res.notifications ?? [],
       nextCursor: res.nextCursor ?? null,
-      loadedForWorkspaceId: workspaceId,
+      loaded: true,
       loading: false,
     });
   },
 
   loadMoreNotifications: async () => {
-    const { nextCursor, loadingMore, loadedForWorkspaceId } = get();
-    if (!nextCursor || loadingMore || !loadedForWorkspaceId) return;
+    const { nextCursor, loadingMore } = get();
+    if (!nextCursor || loadingMore) return;
     set({ loadingMore: true });
     const res = await notificationApi.list({
-      workspaceId: loadedForWorkspaceId,
       cursorCreatedAt: nextCursor.createdAt,
       cursorId: nextCursor.id,
     });
@@ -77,8 +77,8 @@ export const useNotificationStore = create<NotificationState>((set, get) => ({
     await get().fetchUnreadCount();
   },
 
-  markAllRead: async (workspaceId) => {
-    await notificationApi.markAllRead(workspaceId);
+  markAllRead: async () => {
+    await notificationApi.markAllRead();
     const now = new Date().toISOString();
     set((state) => ({
       notifications: state.notifications.map((n) => (n.readAt ? n : { ...n, readAt: now })),
@@ -97,7 +97,8 @@ export const useNotificationStore = create<NotificationState>((set, get) => ({
         }));
         const n = event.payload;
         const title = n.type ? (NOTIFICATION_TYPE_LABELS[n.type] ?? n.type) : "ChatSpace";
-        showDesktopNotification(title, n.text ?? "新しい通知があります");
+        const userId = useAuthStore.getState().user?.id;
+        if (userId) showDesktopNotification(userId, title, n.text ?? "新しい通知があります");
       },
     );
   },

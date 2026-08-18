@@ -45,6 +45,7 @@ export default function TopBar({ workspaceId, userMap, onOpenSidebar }: TopBarPr
   }, [notifOpen]);
 
   function navigateToMessage(target: {
+    workspaceId: string;
     channelId?: string | null;
     dmId?: string | null;
     highlightId: string;
@@ -53,14 +54,18 @@ export default function TopBar({ workspaceId, userMap, onOpenSidebar }: TopBarPr
     const params = new URLSearchParams({ highlight: target.highlightId });
     if (target.replyId) params.set("reply", target.replyId);
     const base = target.channelId
-      ? `/w/${workspaceId}/c/${target.channelId}`
-      : `/w/${workspaceId}/dm/${target.dmId}`;
+      ? `/w/${target.workspaceId}/c/${target.channelId}`
+      : `/w/${target.workspaceId}/dm/${target.dmId}`;
     navigate(`${base}?${params.toString()}`);
   }
 
   function handleNotificationNavigate(n: NotificationResponse) {
-    if (!n.messageId) return;
+    // 通知パネルは全ワークスペース分をまとめて表示する(Tier C)ため、現在開いているワークスペースではなく
+    // 通知自身が指すワークスペースへ遷移する(以前は現在のworkspaceIdでURLを組んでいたため、他ワークスペース
+    // 宛の通知をクリックすると誤ったURLに遷移するバグがあった)。
+    if (!n.messageId || !n.workspaceId) return;
     navigateToMessage({
+      workspaceId: n.workspaceId,
       channelId: n.channelId,
       dmId: n.dmId,
       highlightId: n.threadParentId ?? n.messageId,
@@ -129,7 +134,6 @@ export default function TopBar({ workspaceId, userMap, onOpenSidebar }: TopBarPr
       {notifEverOpened && (
         <div ref={notifPanelRef}>
           <NotificationPanel
-            workspaceId={workspaceId}
             userMap={userMap}
             open={notifOpen}
             onClose={() => setNotifOpen(false)}
