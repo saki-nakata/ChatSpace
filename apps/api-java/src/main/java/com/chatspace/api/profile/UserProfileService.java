@@ -15,8 +15,6 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class UserProfileService {
 
-  private static final int DISPLAY_NAME_MAX = 50;
-  private static final int STATUS_MAX = 100;
   private static final String UPLOAD_URL_PREFIX = "/uploads/";
 
   private final UserRepository userRepository;
@@ -28,10 +26,13 @@ public class UserProfileService {
     this.attachmentRepository = attachmentRepository;
   }
 
+  /**
+   * 表示名・ステータスの文字数/空白チェックは{@link UpdateProfileRequest}のBean Validation
+   * (Controllerの{@code @Valid})が担う。{@code avatarUrl}のみアップロード所有権のDB照会を伴うため Bean
+   * Validationでは表現できず、ここで検証する。
+   */
   @Transactional
   public UserResponse updateProfile(UUID callerId, UpdateProfileRequest request) {
-    validateDisplayName(request.displayName());
-    validateStatus(request.status());
     String avatarUrl = validateAndResolveAvatarUrl(request.avatarUrl(), callerId);
 
     User user =
@@ -39,19 +40,6 @@ public class UserProfileService {
     user.updateProfile(request.displayName(), request.status(), avatarUrl);
     userRepository.save(user);
     return UserResponse.from(user);
-  }
-
-  private void validateDisplayName(String displayName) {
-    if (displayName == null) return;
-    if (displayName.isBlank() || displayName.length() > DISPLAY_NAME_MAX) {
-      throw new BadRequestException("表示名は1〜" + DISPLAY_NAME_MAX + "文字で入力してください。");
-    }
-  }
-
-  private void validateStatus(String status) {
-    if (status != null && status.length() > STATUS_MAX) {
-      throw new BadRequestException("ステータスは" + STATUS_MAX + "文字以内で入力してください。");
-    }
   }
 
   /**

@@ -46,7 +46,12 @@ const SANITIZE_CONFIG: Config = {
     "td",
     "span",
   ],
-  ALLOWED_ATTR: ["href", "title", "class", "target", "rel", "data-mention"],
+  // classは意図的に許可しない。許可すると、アプリ自身がビルドに含むTailwindユーティリティクラス
+  // (例: fixed inset-0 z-50 bg-white)をメッセージ本文経由で任意の許可タグに付与でき、スクリプト実行
+  // 無しで偽オーバーレイを表示するUI偽装・クリックジャッキングが成立してしまう(レビュー指摘対応)。
+  // メンションハイライト用のspanクラスはサニタイズ後にhighlightMentions()がJSで動的付与するため、
+  // ALLOWED_ATTRに無くても問題ない。
+  ALLOWED_ATTR: ["href", "title", "target", "rel", "data-mention"],
 };
 
 /**

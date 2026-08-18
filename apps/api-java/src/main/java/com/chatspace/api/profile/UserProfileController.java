@@ -2,6 +2,7 @@ package com.chatspace.api.profile;
 
 import com.chatspace.api.common.CurrentUser;
 import com.chatspace.api.user.UserResponse;
+import jakarta.validation.Valid;
 import java.util.UUID;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -19,7 +20,7 @@ public class UserProfileController {
 
   @PatchMapping("/users/me")
   public UserResponse updateMe(
-      @RequestBody UpdateProfileRequest request, @CurrentUser UUID userId) {
+      @Valid @RequestBody UpdateProfileRequest request, @CurrentUser UUID userId) {
     return userProfileService.updateProfile(userId, request);
   }
 }
