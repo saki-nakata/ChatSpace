@@ -1,7 +1,5 @@
 name: Frontend CI (apps/web-next)
 
-# apps/web-next はフェーズ9で新設するため、このワークフローはそれまで発火しない
-# (path フィルタが一致するファイルが存在しないため)。計画書のフェーズ0で新設だけ済ませておく。
 on:
   pull_request:
     paths:
@@ -39,7 +37,7 @@ jobs:
         with:
           node-version: "22"
           cache: "pnpm"
-          cache-dependency-path: apps/web-next/pnpm-lock.yaml
+          cache-dependency-path: pnpm-lock.yaml
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -54,3 +52,28 @@ jobs:
 
       - name: Build
         run: pnpm --filter @chatspace/web-next run build
+
+      # STOMP宛先契約テスト(AUTH-N18)がapps/api-javaの出力するJSONと突き合わせるため、
+      # フロントエンドのテストを実行する前にバックエンドをビルドしてJSONを生成しておく
+      - name: Set up JDK 21 (for STOMP destinations contract test)
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Cache Gradle dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('apps/api-java/**/*.gradle*', 'apps/api-java/gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: |
+            gradle-${{ runner.os }}-
+
+      - name: Export STOMP destinations JSON (apps/api-java)
+        working-directory: apps/api-java
+        run: ./gradlew exportStompDestinations --console=plain
+
+      - name: Test (STOMP destinations contract test)
+        run: pnpm --filter @chatspace/web-next run test

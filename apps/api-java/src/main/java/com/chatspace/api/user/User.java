@@ -69,4 +69,11 @@ public class User {
   public Instant getCreatedAt() {
     return createdAt;
   }
+
+  /** プロフィール編集(S-14)。nullのフィールドは更新しない(部分更新、呼び出し元のコメント参照)。 */
+  public void updateProfile(String displayName, String status, String avatarUrl) {
+    if (displayName != null) this.displayName = displayName;
+    if (status != null) this.status = status;
+    if (avatarUrl != null) this.avatarUrl = avatarUrl;
+  }
 }

@@ -22,7 +22,8 @@ public record BroadcastMessageResponse(
     Instant updatedAt,
     Instant editedAt,
     long replyCount,
-    List<BroadcastReactionSummary> reactions) {
+    List<BroadcastReactionSummary> reactions,
+    List<MessageAttachmentResponse> attachments) {
 
   static BroadcastMessageResponse from(MessageResponse response) {
     return new BroadcastMessageResponse(
@@ -37,6 +38,7 @@ public record BroadcastMessageResponse(
         response.updatedAt(),
         response.editedAt(),
         response.replyCount(),
-        response.reactions().stream().map(BroadcastReactionSummary::from).toList());
+        response.reactions().stream().map(BroadcastReactionSummary::from).toList(),
+        response.attachments());
   }
 }

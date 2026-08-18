@@ -17,7 +17,10 @@ spring:
 
 chatspace:
   jwt-secret: dev-only-secret-do-not-use-in-production
-  web-origin: http://localhost:5173
+  # プロファイル固有ファイルでハードコードすると環境変数WEB_ORIGINでの上書きが効かなくなるため、
+  # application.ymlと同じプレースホルダ形式にする(旧apps/web:5173と新apps/web-next:5174を
+  # 切り替えて起動確認する際に環境変数で上書きできるようにするため。実機確認時に発見・修正)
+  web-origin: ${WEB_ORIGIN:http://localhost:5173}
   upload-dir: ./uploads
 
 logging:
