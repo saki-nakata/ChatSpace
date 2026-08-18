@@ -13,6 +13,8 @@ interface PresenceState {
   fetchInitialPresence: (workspaceId: string) => Promise<void>;
   /** `/topic/workspaces.{id}.presence`のPRESENCE_UPDATEDイベントを購読する。戻り値の関数で購読解除する。 */
   subscribeRealtime: (workspaceId: string) => () => void;
+  /** ログアウト・ログイン時に呼ぶ(`authStore`参照)。前ユーザー視点のプレゼンスが残るのを防ぐ。 */
+  reset: () => void;
 }
 
 export const usePresenceStore = create<PresenceState>((set) => ({
@@ -40,4 +42,6 @@ export const usePresenceStore = create<PresenceState>((set) => ({
       },
     );
   },
+
+  reset: () => set({ onlineUserIds: new Set() }),
 }));
