@@ -1,152 +1,172 @@
-import { useEffect, useRef, useState } from "react";
-import { Outlet, useLocation, useNavigate, useParams } from "react-router-dom";
-import { SocketEvents } from "@chatspace/shared";
-import type { ChannelDTO, DMThreadDTO, MessageDTO, NotificationDTO } from "@chatspace/shared";
-import { useWorkspaceStore } from "../store/workspaceStore";
+import { useEffect, useState } from "react";
+import { Outlet, useNavigate, useParams } from "react-router-dom";
 import { useAuthStore } from "../store/authStore";
 import { useNotificationStore } from "../store/notificationStore";
 import { usePresenceStore } from "../store/presenceStore";
-import { getSocket } from "../lib/socket";
-import { requestNotificationPermission, showBrowserNotification } from "../lib/browserNotify";
-import { workspaceApi } from "../api/resources";
-import Sidebar from "../components/layout/Sidebar";
+import { useWorkspaceStore } from "../store/workspaceStore";
+import { channelApi, dmApi, workspaceApi } from "../api/resources";
+import type { ChannelResponse, DmThreadResponse, UserResponse } from "../api/types";
+import { useUnreadTabTitle } from "../lib/useUnreadTabTitle";
 import TopBar from "../components/layout/TopBar";
+import Sidebar from "../components/layout/Sidebar";
+import CreateChannelModal from "../components/workspace/CreateChannelModal";
+import StartDmModal from "../components/workspace/StartDmModal";
+import WorkspaceMembersModal from "../components/workspace/WorkspaceMembersModal";
 
+export interface WorkspaceShellContext {
+  channels: ChannelResponse[];
+  dms: DmThreadResponse[];
+  isOwner: boolean;
+  onlineUserIds: Set<string>;
+  refreshSidebar: () => void;
+}
+
+/**
+ * S-04ワークスペースシェル(サイドバー・トップバー)。チャンネル・DM一覧の表示とプレゼンス・通知の
+ * リアルタイム購読を配線する。検索(S-12)・通知パネル(S-13)は`TopBar`に委譲(フェーズ9-D)。
+ * 管理系モーダル(S-08〜S-11)はここで、S-14(プロフィール編集)は`TopBar`で扱う(フェーズ9-E)。
+ * サイドバーは`components/layout/Sidebar.tsx`に分離し、640px未満ではドロワー化する(フェーズ9-F)。
+ */
 export default function WorkspaceShellPage() {
   const { workspaceId } = useParams<{ workspaceId: string }>();
-  const location = useLocation();
   const navigate = useNavigate();
   const user = useAuthStore((s) => s.user);
+  const fetchUnreadCount = useNotificationStore((s) => s.fetchUnreadCount);
+  const subscribeNotifications = useNotificationStore((s) => s.subscribeRealtime);
+  const onlineUserIds = usePresenceStore((s) => s.onlineUserIds);
+  const fetchInitialPresence = usePresenceStore((s) => s.fetchInitialPresence);
+  const subscribePresence = usePresenceStore((s) => s.subscribeRealtime);
   const workspaces = useWorkspaceStore((s) => s.workspaces);
-  const channels = useWorkspaceStore((s) => s.channels);
-  const dmThreads = useWorkspaceStore((s) => s.dmThreads);
-  const enterWorkspace = useWorkspaceStore((s) => s.enterWorkspace);
-  const upsertChannel = useWorkspaceStore((s) => s.upsertChannel);
-  const removeChannel = useWorkspaceStore((s) => s.removeChannel);
-  const upsertDMThread = useWorkspaceStore((s) => s.upsertDMThread);
-  const bumpUnreadFromMessage = useWorkspaceStore((s) => s.bumpUnreadFromMessage);
-  const loadNotifications = useNotificationStore((s) => s.load);
-  const pushNotification = useNotificationStore((s) => s.push);
-  const setOnline = usePresenceStore((s) => s.setOnline);
-  const setUserPresence = usePresenceStore((s) => s.setUserPresence);
-  const [ready, setReady] = useState(false);
+  const fetchWorkspaces = useWorkspaceStore((s) => s.fetchWorkspaces);
+  const [channels, setChannels] = useState<ChannelResponse[]>([]);
+  const [dms, setDms] = useState<DmThreadResponse[]>([]);
+  // 検索結果・通知パネルの表示者名解決用。単一チャンネル/DMのuserMapと異なりワークスペース全体が対象になり得るため
+  // (画面設計書S-12/S-13は検索・通知の対象を特定のチャンネル/DMに限定しない)、ワークスペースメンバー全体を保持する。
+  const [memberMap, setMemberMap] = useState<Record<string, UserResponse>>({});
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
-  // socket イベントハンドラは workspaceId/user が変わらない限り張り直さないため、
-  // 「今どのチャンネル/DMを開いているか」は ref で保持し、ハンドラ発火のたびに最新値を読む。
-  // ref への書き込みはレンダー中ではなく必ず effect 内で行う。
-  const activeThreadKeyRef = useRef<string | null>(null);
-  useEffect(() => {
-    const match = location.pathname.match(/\/(c|dm)\/([^/]+)/);
-    activeThreadKeyRef.current = match ? `${match[1] === "c" ? "c" : "d"}:${match[2]}` : null;
-  }, [location.pathname]);
+  const [createChannelOpen, setCreateChannelOpen] = useState(false);
+  const [createChannelTrigger, setCreateChannelTrigger] = useState<HTMLElement | null>(null);
+  const [startDmOpen, setStartDmOpen] = useState(false);
+  const [startDmTrigger, setStartDmTrigger] = useState<HTMLElement | null>(null);
+  const [membersOpen, setMembersOpen] = useState(false);
+  const [membersTrigger, setMembersTrigger] = useState<HTMLElement | null>(null);
+  const [sidebarTrigger, setSidebarTrigger] = useState<HTMLElement | null>(null);
 
-  useEffect(() => {
+  const currentWorkspace = workspaces.find((w) => w.id === workspaceId);
+  const isOwner = currentWorkspace?.myRole === "OWNER";
+
+  // タブタイトルの未読件数(フェーズ10)。サイドバーのバッジと同じ「現ワークスペース内の未読メッセージ数」を使う。
+  const totalUnread =
+    channels.reduce((sum, c) => sum + (c.unreadCount ?? 0), 0) +
+    dms.reduce((sum, d) => sum + (d.unreadCount ?? 0), 0);
+  useUnreadTabTitle(totalUnread);
+
+  function refreshSidebar() {
     if (!workspaceId) return;
-    setReady(false);
-    enterWorkspace(workspaceId).then(() => setReady(true));
-    loadNotifications(workspaceId);
-    workspaceApi.presence(workspaceId).then(({ onlineUserIds }) => setOnline(onlineUserIds));
-  }, [workspaceId, enterWorkspace, loadNotifications, setOnline]);
+    channelApi.list(workspaceId).then(setChannels);
+    dmApi.list(workspaceId).then(setDms);
+  }
 
   useEffect(() => {
-    requestNotificationPermission();
-  }, []);
-
-  // 未読件数をブラウザタブのタイトルに反映する
-  useEffect(() => {
-    const totalUnread =
-      channels.reduce((sum, c) => sum + c.unreadCount, 0) + dmThreads.reduce((sum, d) => sum + d.unreadCount, 0);
-    document.title = totalUnread > 0 ? `(${totalUnread > 99 ? "99+" : totalUnread}) ChatSpace` : "ChatSpace";
-    return () => {
-      document.title = "ChatSpace";
-    };
-  }, [channels, dmThreads]);
-
-  useEffect(() => {
-    if (!workspaceId || !user) return;
-    const socket = getSocket();
-
-    const onChannelCreated = (channel: ChannelDTO) => {
-      if (channel.workspaceId !== workspaceId) return;
-      upsertChannel(channel);
-      socket.emit(SocketEvents.JoinChannel, channel.id);
-    };
-    const onChannelDeleted = (payload: { workspaceId: string; channelId: string }) => {
-      if (payload.workspaceId !== workspaceId) return;
-      removeChannel(payload.channelId);
-      if (activeThreadKeyRef.current === `c:${payload.channelId}`) {
-        navigate(`/w/${workspaceId}`);
+    if (!workspaceId || !user?.id) return;
+    refreshSidebar();
+    fetchInitialPresence(workspaceId);
+    fetchUnreadCount();
+    fetchWorkspaces();
+    workspaceApi.members(workspaceId).then((members) => {
+      const map: Record<string, UserResponse> = {};
+      for (const m of members) {
+        if (m.user?.id) map[m.user.id] = m.user;
       }
-    };
-    const onWorkspaceKicked = (payload: { workspaceId: string; userId: string }) => {
-      if (payload.workspaceId !== workspaceId) return;
-      if (payload.userId === user.id) {
-        navigate("/", { replace: true });
-      }
-    };
-    const onMessageCreated = (message: MessageDTO) => {
-      bumpUnreadFromMessage(message, activeThreadKeyRef.current, user.id);
-    };
-    const onNotification = (notification: NotificationDTO) => {
-      pushNotification(notification);
-      const from = notification.fromUser?.displayName ?? "ChatSpace";
-      showBrowserNotification(from, notification.text);
-    };
-    const onDMThreadCreated = (dm: DMThreadDTO) => {
-      if (dm.workspaceId !== workspaceId) return;
-      upsertDMThread(dm);
-      socket.emit(SocketEvents.JoinDM, dm.id);
-    };
-    const onPresenceUpdated = (payload: { userId: string; online: boolean }) => {
-      setUserPresence(payload.userId, payload.online);
-    };
-
-    socket.on(SocketEvents.ChannelCreated, onChannelCreated);
-    socket.on(SocketEvents.ChannelDeleted, onChannelDeleted);
-    socket.on(SocketEvents.WorkspaceMemberKicked, onWorkspaceKicked);
-    socket.on(SocketEvents.MessageCreated, onMessageCreated);
-    socket.on(SocketEvents.Notification, onNotification);
-    socket.on(SocketEvents.DMThreadCreated, onDMThreadCreated);
-    socket.on(SocketEvents.PresenceUpdated, onPresenceUpdated);
-
+      setMemberMap(map);
+    });
+    const unsubscribePresence = subscribePresence(workspaceId);
+    const unsubscribeNotifications = subscribeNotifications(user.id);
     return () => {
-      socket.off(SocketEvents.ChannelCreated, onChannelCreated);
-      socket.off(SocketEvents.ChannelDeleted, onChannelDeleted);
-      socket.off(SocketEvents.WorkspaceMemberKicked, onWorkspaceKicked);
-      socket.off(SocketEvents.MessageCreated, onMessageCreated);
-      socket.off(SocketEvents.Notification, onNotification);
-      socket.off(SocketEvents.DMThreadCreated, onDMThreadCreated);
-      socket.off(SocketEvents.PresenceUpdated, onPresenceUpdated);
+      unsubscribePresence();
+      unsubscribeNotifications();
     };
-  }, [
-    workspaceId,
-    user,
-    navigate,
-    upsertChannel,
-    removeChannel,
-    upsertDMThread,
-    bumpUnreadFromMessage,
-    pushNotification,
-    setUserPresence,
-  ]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workspaceId, user?.id]);
 
-  const workspace = workspaces.find((w) => w.id === workspaceId);
+  if (!workspaceId || !user) return null;
 
-  if (!workspaceId) return null;
+  const context: WorkspaceShellContext = { channels, dms, isOwner, onlineUserIds, refreshSidebar };
 
   return (
-    <div className="flex h-full overflow-x-hidden">
+    <div className="flex h-full">
       <Sidebar
-        workspaceId={workspaceId}
-        workspace={workspace}
+        workspaceName={currentWorkspace?.name}
+        channels={channels}
+        dms={dms}
+        isOwner={isOwner}
+        onlineUserIds={onlineUserIds}
         isOpen={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
+        onCreateChannel={(e) => {
+          setCreateChannelTrigger(e.currentTarget);
+          setCreateChannelOpen(true);
+        }}
+        onStartDm={(e) => {
+          setStartDmTrigger(e.currentTarget);
+          setStartDmOpen(true);
+        }}
+        onOpenMembers={(e) => {
+          setMembersTrigger(e.currentTarget);
+          setMembersOpen(true);
+        }}
+        restoreFocusTo={sidebarTrigger}
       />
+
       <div className="flex min-w-0 flex-1 flex-col">
-        <TopBar workspaceId={workspaceId} workspace={workspace} onOpenSidebar={() => setSidebarOpen(true)} />
-        <div className="min-h-0 flex-1">{ready && <Outlet />}</div>
+        <TopBar
+          workspaceId={workspaceId}
+          userMap={memberMap}
+          onOpenSidebar={(e) => {
+            setSidebarTrigger(e.currentTarget);
+            setSidebarOpen(true);
+          }}
+        />
+        <main className="flex-1 overflow-hidden">
+          <Outlet context={context} />
+        </main>
       </div>
+
+      {createChannelOpen && (
+        <CreateChannelModal
+          workspaceId={workspaceId}
+          onClose={() => setCreateChannelOpen(false)}
+          onCreated={(channel) => {
+            refreshSidebar();
+            if (channel.id) navigate(`c/${channel.id}`);
+          }}
+          restoreFocusTo={createChannelTrigger}
+        />
+      )}
+
+      {startDmOpen && (
+        <StartDmModal
+          workspaceId={workspaceId}
+          onClose={() => setStartDmOpen(false)}
+          onStarted={(thread) => {
+            refreshSidebar();
+            if (thread.id) navigate(`dm/${thread.id}`);
+          }}
+          restoreFocusTo={startDmTrigger}
+        />
+      )}
+
+      {membersOpen && (
+        <WorkspaceMembersModal
+          workspaceId={workspaceId}
+          currentUserId={user.id ?? ""}
+          onlineUserIds={onlineUserIds}
+          onClose={() => setMembersOpen(false)}
+          onSelfLeft={() => navigate("/", { replace: true })}
+          restoreFocusTo={membersTrigger}
+        />
+      )}
     </div>
   );
 }

@@ -1,133 +1,177 @@
-import { KeyboardEvent, useMemo, useRef, useState } from "react";
-import type { AttachmentDTO } from "@chatspace/shared";
-import { SocketEvents } from "@chatspace/shared";
-import { uploadApi } from "../../api/resources";
-import { attachmentUrl, ApiError } from "../../api/client";
-import { getSocket } from "../../lib/socket";
+import { type ChangeEvent, type KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
+import { channelApi, uploadApi } from "../../api/resources";
+import { ApiError } from "../../api/client";
+import type { AttachmentResponse, UserResponse } from "../../api/types";
 
-export interface MentionCandidate {
-  userId: string;
-  displayName: string;
+interface MentionSource {
+  workspaceId: string;
+  channelId: string;
 }
 
-type ScopeType = "channel" | "dm";
-
-interface Props {
-  onSend: (body: string, attachmentIds: string[]) => Promise<void>;
+interface MessageComposerProps {
+  onSend: (body: string, attachmentIds?: string[]) => Promise<void>;
   placeholder?: string;
-  autoFocus?: boolean;
-  scopeType?: ScopeType;
-  scopeId?: string;
-  mentionCandidates?: MentionCandidate[];
+  /** 入力のたびに呼ぶ(親がSTOMPタイピングイベントのスロットリング送信を担う)。 */
+  onTyping?: () => void;
+  /** チャンネルスコープの場合のみ渡す。DMにはメンション自動補完のAPIが存在しないため対象外(メンション機能定義書§3.3)。 */
+  mentionSource?: MentionSource;
 }
 
-const TYPING_THROTTLE_MS = 2000;
+const MENTION_TRIGGER = /(?:^|\s)@([a-zA-Z0-9_.-]{0,20})$/;
+const MENTION_DEBOUNCE_MS = 200;
+/** バックエンドのMimeSniffer(添付ファイル機能定義書§3.1)が実際に許可する6形式のみをファイル選択ダイアログに出す。 */
+const ACCEPTED_ATTACHMENT_TYPES =
+  "image/png,image/jpeg,image/gif,image/webp,video/mp4,video/webm";
+/** CreateMessageRequest.attachmentIdsのバリデーション上限(メッセージング機能定義書§5)と一致させる。 */
+const MAX_ATTACHMENTS = 10;
 
+interface PendingAttachment {
+  key: string;
+  fileName: string;
+  previewUrl: string;
+  uploading: boolean;
+  error: string | null;
+  attachment: AttachmentResponse | null;
+}
+
+/** Slackの下部メッセージ入力欄に倣う。Enterで送信、Shift+Enterで改行、@でメンション自動補完。 */
 export default function MessageComposer({
   onSend,
   placeholder,
-  autoFocus,
-  scopeType,
-  scopeId,
-  mentionCandidates,
-}: Props) {
+  onTyping,
+  mentionSource,
+}: MessageComposerProps) {
   const [body, setBody] = useState("");
-  const [attachments, setAttachments] = useState<AttachmentDTO[]>([]);
-  const [uploading, setUploading] = useState(false);
   const [sending, setSending] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [candidates, setCandidates] = useState<UserResponse[]>([]);
+  const [pendingAttachments, setPendingAttachments] = useState<PendingAttachment[]>([]);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const lastTypingEmitRef = useRef(0);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const mentionMatches = useMemo(() => {
-    if (mentionQuery === null || !mentionCandidates) return [];
-    const needle = mentionQuery.toLowerCase();
-    return mentionCandidates
-      .filter(
-        (c) => c.userId.toLowerCase().startsWith(needle) || c.displayName.toLowerCase().includes(needle),
-      )
-      .slice(0, 6);
-  }, [mentionQuery, mentionCandidates]);
+  // 入力欄の自動リサイズ(Shift+Enterで改行しても1行のまま固定されていた問題の修正、max-h-40が
+  // 実効的な上限として働く。この上限を超えると通常のtextarea同様にスクロールする)。
+  useEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  }, [body]);
 
-  function emitTyping() {
-    if (!scopeType || !scopeId) return;
-    const now = Date.now();
-    if (now - lastTypingEmitRef.current < TYPING_THROTTLE_MS) return;
-    lastTypingEmitRef.current = now;
-    getSocket().emit(SocketEvents.Typing, scopeType === "channel" ? { channelId: scopeId } : { dmId: scopeId });
-  }
-
-  function handleChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
-    const value = e.target.value;
-    setBody(value);
-    emitTyping();
-
-    if (mentionCandidates) {
-      const cursor = e.target.selectionStart ?? value.length;
-      const beforeCursor = value.slice(0, cursor);
-      const match = beforeCursor.match(/(?:^|\s)@([a-zA-Z0-9_.-]{0,20})$/);
-      setMentionQuery(match ? match[1] : null);
-    }
-  }
-
-  function insertMention(candidate: MentionCandidate) {
-    const textarea = textareaRef.current;
-    const cursor = textarea?.selectionStart ?? body.length;
-    const beforeCursor = body.slice(0, cursor);
-    const afterCursor = body.slice(cursor);
-    const replaced = beforeCursor.replace(/(?:^|\s)@([a-zA-Z0-9_.-]{0,20})$/, (m) =>
-      (m.startsWith(" ") ? " " : "") + `@${candidate.userId} `,
-    );
-    const nextBody = replaced + afterCursor;
-    setBody(nextBody);
-    setMentionQuery(null);
-    requestAnimationFrame(() => textarea?.focus());
-  }
-
-  async function handleFiles(files: FileList | null) {
-    if (!files || files.length === 0) return;
-    setError(null);
-    setUploading(true);
-    try {
-      for (const file of Array.from(files)) {
-        const { attachment } = await uploadApi.upload(file);
-        setAttachments((prev) => [...prev, attachment]);
-      }
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : "アップロードに失敗しました。");
-    } finally {
-      setUploading(false);
-      if (fileInputRef.current) fileInputRef.current.value = "";
-    }
-  }
+  const visibleCandidates = useMemo(() => candidates.slice(0, 6), [candidates]);
+  const uploadingCount = pendingAttachments.filter((a) => a.uploading).length;
+  const readyAttachmentIds = pendingAttachments
+    .map((a) => a.attachment?.id)
+    .filter((id): id is string => !!id);
 
   async function handleSend() {
     const trimmed = body.trim();
-    if (!trimmed && attachments.length === 0) return;
+    // メッセージ本文はメッセージング機能定義書§5により添付ファイルの有無に関わらず必須(1〜4000文字)。
+    if (!trimmed || sending || uploadingCount > 0) return;
     setSending(true);
-    setError(null);
     try {
-      await onSend(trimmed, attachments.map((a) => a.id));
+      await onSend(trimmed, readyAttachmentIds.length > 0 ? readyAttachmentIds : undefined);
       setBody("");
-      setAttachments([]);
       setMentionQuery(null);
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : "送信に失敗しました。");
+      pendingAttachments.forEach((a) => URL.revokeObjectURL(a.previewUrl));
+      setPendingAttachments([]);
     } finally {
       setSending(false);
     }
   }
 
+  function handleFilesSelected(e: ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files ?? []);
+    e.target.value = ""; // 同じファイルを連続選択できるようリセット
+    if (files.length === 0) return;
+
+    const room = MAX_ATTACHMENTS - pendingAttachments.length;
+    const accepted = files.slice(0, Math.max(room, 0));
+
+    const entries: PendingAttachment[] = accepted.map((file) => ({
+      key: `${file.name}-${file.size}-${Date.now()}-${Math.random()}`,
+      fileName: file.name,
+      previewUrl: URL.createObjectURL(file),
+      uploading: true,
+      error: null,
+      attachment: null,
+    }));
+    setPendingAttachments((prev) => [...prev, ...entries]);
+
+    entries.forEach((entry, i) => {
+      uploadApi
+        .upload(accepted[i])
+        .then((attachment) => {
+          setPendingAttachments((prev) =>
+            prev.map((a) =>
+              a.key === entry.key ? { ...a, uploading: false, attachment: attachment ?? null } : a,
+            ),
+          );
+        })
+        .catch((err: unknown) => {
+          const message = err instanceof ApiError ? err.message : "アップロードに失敗しました。";
+          setPendingAttachments((prev) =>
+            prev.map((a) => (a.key === entry.key ? { ...a, uploading: false, error: message } : a)),
+          );
+        });
+    });
+  }
+
+  function removeAttachment(key: string) {
+    setPendingAttachments((prev) => {
+      const target = prev.find((a) => a.key === key);
+      if (target) URL.revokeObjectURL(target.previewUrl);
+      return prev.filter((a) => a.key !== key);
+    });
+  }
+
+  function handleChange(e: ChangeEvent<HTMLTextAreaElement>) {
+    const value = e.target.value;
+    setBody(value);
+    onTyping?.();
+
+    if (!mentionSource) return;
+    const cursor = e.target.selectionStart ?? value.length;
+    const match = value.slice(0, cursor).match(MENTION_TRIGGER);
+    const query = match ? match[1] : null;
+    setMentionQuery(query);
+    if (query === null) {
+      setCandidates([]);
+      return;
+    }
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(async () => {
+      const res = await channelApi.mentionCandidates(
+        mentionSource.workspaceId,
+        mentionSource.channelId,
+        query,
+      );
+      setCandidates(res.candidates ?? []);
+    }, MENTION_DEBOUNCE_MS);
+  }
+
+  function insertMention(candidate: UserResponse) {
+    const textarea = textareaRef.current;
+    const cursor = textarea?.selectionStart ?? body.length;
+    const before = body.slice(0, cursor);
+    const after = body.slice(cursor);
+    const replaced = before.replace(MENTION_TRIGGER, (m) => `${m.startsWith(" ") ? " " : ""}@${candidate.userId} `);
+    setBody(replaced + after);
+    setMentionQuery(null);
+    setCandidates([]);
+    requestAnimationFrame(() => textarea?.focus());
+  }
+
   function handleKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
-    if (mentionMatches.length > 0 && (e.key === "Enter" || e.key === "Tab") && mentionQuery !== null) {
+    if (mentionQuery !== null && visibleCandidates.length > 0 && (e.key === "Enter" || e.key === "Tab")) {
       e.preventDefault();
-      insertMention(mentionMatches[0]);
+      insertMention(visibleCandidates[0]);
       return;
     }
     if (e.key === "Escape" && mentionQuery !== null) {
       setMentionQuery(null);
+      setCandidates([]);
       return;
     }
     if (e.key === "Enter" && !e.shiftKey) {
@@ -137,12 +181,12 @@ export default function MessageComposer({
   }
 
   return (
-    <div className="relative border-t border-slate-200 bg-white p-3">
-      {mentionMatches.length > 0 && (
-        <div className="absolute bottom-full left-3 mb-1 w-56 overflow-hidden rounded-md border border-slate-200 bg-white shadow-lg">
-          {mentionMatches.map((c) => (
+    <div className="relative border-t border-slate-200 bg-white px-4 py-3">
+      {mentionQuery !== null && visibleCandidates.length > 0 && (
+        <div className="absolute bottom-full left-4 mb-1 w-56 overflow-hidden rounded-md border border-slate-200 bg-white shadow-lg">
+          {visibleCandidates.map((c) => (
             <button
-              key={c.userId}
+              key={c.id}
               onClick={() => insertMention(c)}
               className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-brand-50"
             >
@@ -153,20 +197,33 @@ export default function MessageComposer({
         </div>
       )}
 
-      {attachments.length > 0 && (
+      {pendingAttachments.length > 0 && (
         <div className="mb-2 flex flex-wrap gap-2">
-          {attachments.map((a) => (
-            <div key={a.id} className="flex items-center gap-2 rounded-md border border-slate-200 bg-slate-50 p-1.5 text-xs">
-              {a.kind === "IMAGE" ? (
-                <img src={attachmentUrl(a.url)} alt={a.fileName} className="h-8 w-8 rounded object-cover" />
+          {pendingAttachments.map((a) => (
+            <div
+              key={a.key}
+              className="relative flex h-16 w-16 flex-shrink-0 items-center justify-center overflow-hidden rounded-md border border-slate-200 bg-slate-50"
+              title={a.fileName}
+            >
+              {a.attachment?.kind === "VIDEO" ? (
+                <video src={a.previewUrl} className="h-full w-full object-cover" muted />
               ) : (
-                <span>🎬</span>
+                <img src={a.previewUrl} alt={a.fileName} className="h-full w-full object-cover" />
               )}
-              <span className="max-w-[8rem] truncate">{a.fileName}</span>
+              {a.uploading && (
+                <div className="absolute inset-0 flex items-center justify-center bg-black/40 text-xs text-white">
+                  送信中...
+                </div>
+              )}
+              {a.error && (
+                <div className="absolute inset-0 flex items-center justify-center bg-red-500/80 p-1 text-center text-[10px] text-white">
+                  {a.error}
+                </div>
+              )}
               <button
-                onClick={() => setAttachments((prev) => prev.filter((x) => x.id !== a.id))}
-                aria-label={`${a.fileName} を添付から外す`}
-                className="text-slate-500 hover:text-red-500"
+                onClick={() => removeAttachment(a.key)}
+                aria-label="添付ファイルを削除"
+                className="absolute right-0.5 top-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-black/60 text-[10px] leading-none text-white hover:bg-black/80"
               >
                 ✕
               </button>
@@ -175,40 +232,36 @@ export default function MessageComposer({
         </div>
       )}
 
-      {error && <p className="mb-2 text-xs text-red-600">{error}</p>}
-
-      <div className="flex items-end gap-2">
-        <button
-          onClick={() => fileInputRef.current?.click()}
-          disabled={uploading}
-          title="画像・動画を添付"
-          aria-label="画像・動画を添付"
-          className="rounded-md border border-slate-200 px-2 py-2 text-slate-500 hover:bg-slate-50 disabled:opacity-50"
-        >
-          📎
-        </button>
+      <div className="flex items-end gap-2 rounded-lg border border-slate-300 px-3 py-2 focus-within:border-brand-500 focus-within:ring-1 focus-within:ring-brand-500">
         <input
           ref={fileInputRef}
           type="file"
           multiple
-          accept="image/png,image/jpeg,image/gif,image/webp,video/mp4,video/webm"
+          accept={ACCEPTED_ATTACHMENT_TYPES}
+          onChange={handleFilesSelected}
           className="hidden"
-          onChange={(e) => handleFiles(e.target.files)}
         />
+        <button
+          onClick={() => fileInputRef.current?.click()}
+          disabled={pendingAttachments.length >= MAX_ATTACHMENTS}
+          title="画像・動画を添付"
+          className="rounded-md px-2 py-1.5 text-lg text-slate-500 hover:bg-slate-100 disabled:opacity-40"
+        >
+          📎
+        </button>
         <textarea
           ref={textareaRef}
+          className="max-h-40 flex-1 resize-none text-sm outline-none"
+          rows={1}
           value={body}
           onChange={handleChange}
           onKeyDown={handleKeyDown}
-          placeholder={placeholder ?? "メッセージを入力 (Markdown対応、Shift+Enterで改行、@でメンション)"}
-          rows={1}
-          autoFocus={autoFocus}
-          className="max-h-32 flex-1 resize-none rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500"
+          placeholder={placeholder ?? "メッセージを入力..."}
         />
         <button
           onClick={handleSend}
-          disabled={sending || uploading}
-          className="rounded-md bg-brand-500 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-600 disabled:opacity-50"
+          disabled={!body.trim() || sending || uploadingCount > 0}
+          className="rounded-md bg-brand-500 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-brand-600 disabled:opacity-40"
         >
           送信
         </button>

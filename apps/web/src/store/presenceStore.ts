@@ -1,24 +1,47 @@
 import { create } from "zustand";
+import { workspaceApi } from "../api/resources";
+import { workspacePresenceTopic } from "../realtime/destinations";
+import { subscribeJson, type RealtimeEvent } from "../realtime/stomp";
+
+interface PresencePayload {
+  userId: string;
+  online: boolean;
+}
 
 interface PresenceState {
   onlineUserIds: Set<string>;
-  setOnline: (userIds: string[]) => void;
-  setUserPresence: (userId: string, online: boolean) => void;
-  isOnline: (userId: string) => boolean;
+  fetchInitialPresence: (workspaceId: string) => Promise<void>;
+  /** `/topic/workspaces.{id}.presence`のPRESENCE_UPDATEDイベントを購読する。戻り値の関数で購読解除する。 */
+  subscribeRealtime: (workspaceId: string) => () => void;
+  /** ログアウト・ログイン時に呼ぶ(`authStore`参照)。前ユーザー視点のプレゼンスが残るのを防ぐ。 */
+  reset: () => void;
 }
 
-export const usePresenceStore = create<PresenceState>((set, get) => ({
+export const usePresenceStore = create<PresenceState>((set) => ({
   onlineUserIds: new Set(),
 
-  setOnline: (userIds) => set({ onlineUserIds: new Set(userIds) }),
+  fetchInitialPresence: async (workspaceId) => {
+    const userIds = await workspaceApi.presence(workspaceId);
+    set({ onlineUserIds: new Set(userIds) });
+  },
 
-  setUserPresence: (userId, online) =>
-    set((s) => {
-      const next = new Set(s.onlineUserIds);
-      if (online) next.add(userId);
-      else next.delete(userId);
-      return { onlineUserIds: next };
-    }),
+  subscribeRealtime: (workspaceId) => {
+    return subscribeJson<PresencePayload>(
+      workspacePresenceTopic(workspaceId),
+      (event: RealtimeEvent<PresencePayload>) => {
+        if (event.type !== "PRESENCE_UPDATED") return;
+        set((state) => {
+          const next = new Set(state.onlineUserIds);
+          if (event.payload.online) {
+            next.add(event.payload.userId);
+          } else {
+            next.delete(event.payload.userId);
+          }
+          return { onlineUserIds: next };
+        });
+      },
+    );
+  },
 
-  isOnline: (userId) => get().onlineUserIds.has(userId),
+  reset: () => set({ onlineUserIds: new Set() }),
 }));

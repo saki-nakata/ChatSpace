@@ -13,8 +13,8 @@ description: プロジェクト全体の品質チェック（静的解析）を�
 
 ## 1. フロントエンド（JavaScript / TypeScript）
 
-`package.json` が存在するディレクトリを対象とする。
-`web/`, `frontend/`, `client/` など、プロジェクトによってディレクトリ名が異なる場合は適宜読み替えること。
+本プロジェクトのフロントエンドは `apps/web`（React + Vite）のみ。
+`pnpm-workspace.yaml` もこの1パッケージだけを含む。
 
 ```bash
 # ESLint チェック
@@ -35,14 +35,14 @@ pnpm exec eslint .
 
 ## 2. バックエンド
 
-### Java / Spring Boot（`apps/api-java/build.gradle.kts` が存在する場合。本プロジェクトの確定スタック）
+### Java / Spring Boot（`apps/api/build.gradle.kts` が存在する場合。本プロジェクトの確定スタック）
 
 Checkstyle/Maven は不採用（Spotless + ArchUnit を採用、計画書§1.1）。`./gradlew build` に
 `spotlessCheck`（フォーマット）・ArchUnitテスト（3層アーキテクチャ制約）・単体/統合テストがすべて
 内包されるため、これ1コマンドで完結する。
 
 ```bash
-cd apps/api-java
+cd apps/api
 
 # フォーマット・ArchUnit・テスト・ビルドを一括実行（checkタスクの依存経由でspotlessCheckも走る）
 ./gradlew build --console=plain
@@ -51,10 +51,10 @@ cd apps/api-java
 ./gradlew spotlessApply
 ```
 
-### Flyway マイグレーション検証（`apps/api-java/src/main/resources/db/migration/` が存在する場合）
+### Flyway マイグレーション検証（`apps/api/src/main/resources/db/migration/` が存在する場合）
 
 ```bash
-cd apps/api-java
+cd apps/api
 # 適用済みマイグレーションファイルが改変されていないかを検証する
 ./gradlew flywayValidate
 ```
@@ -62,15 +62,15 @@ cd apps/api-java
 `git diff` で `V{既存の番号}__*.sql` ファイルの内容そのものが変更されている場合は指摘すること
 （変更が必要なら新しい番号のファイルを追加するのが正しい対応。DB設計書§1.3参照）。
 
-### OpenAPI 生成物のドリフト検出（フェーズ8以降、`apps/api-java` に springdoc-openapi 導入後）
+### OpenAPI 生成物のドリフト検出（フェーズ8以降、`apps/api` に springdoc-openapi 導入後）
 
 ```bash
-cd apps/api-java
+cd apps/api
 ./gradlew generateOpenApiDocs
 git diff --exit-code -- openapi.json  # 差分があればコミット漏れ
 ```
 
-### 認可クリティカルテストの確認（`apps/api-java/src/test/java/.../authorization/` が存在する場合）
+### 認可クリティカルテストの確認（`apps/api/src/test/java/.../authorization/` が存在する場合）
 
 上記の `./gradlew build` 実行結果のうち、`authorization` パッケージ配下のテストクラスの
 成否は必ず個別に報告すること（静的解析より重要度が高い項目のため、レポートの「バックエンド」
@@ -86,10 +86,6 @@ ruff check .
 flake8 .
 ```
 
-### Node.js / TypeScript（バックエンドが独立している場合）
-
-フロントエンドと同様に ESLint + TypeScript チェックを実行。
-
 ---
 
 ## 3. ビルド確認
@@ -100,7 +96,7 @@ flake8 .
 pnpm build
 ```
 
-### バックエンド Java / Spring Boot（`apps/api-java`）
+### バックエンド Java / Spring Boot（`apps/api`）
 
 上記2節の `./gradlew build` に静的解析・テスト・ビルドがすべて含まれるため、ここで改めて
 テスト抜きビルドを実行する必要はない（本プロジェクトでは「認可クリティカルテストは lint より
@@ -162,7 +158,7 @@ actionlint が利用できない場合は、`.github/workflows/` 配下の全フ
 **`docs/` は要件定義書・DB設計書・画面設計書・画面遷移図・シーケンス図・インフラ構成書・
 テスト設計書・ログ運用設計書・機能定義書（11ファイル）の計19ファイルと分量が大きいため、
 毎回全ファイルを読み込むのではなく、`git diff` で変更されたコードパッケージ・機能から
-対応するドキュメントを特定し、その範囲のみを対象とする**（例: `apps/api-java/src/main/java/com/chatspace/api/dm/` 配下の変更なら `docs/機能定義書/DM機能定義書.md` と `docs/要件定義書.md`・`docs/DB設計書.md` の関連箇所のみ確認すれば足りる）。差異確認の対象を絞れない大きな変更（新機能追加等）の場合のみ、関連する複数ドキュメントを横断的に確認する。`README.md` は毎回対象に含めてよい。
+対応するドキュメントを特定し、その範囲のみを対象とする**（例: `apps/api/src/main/java/com/chatspace/api/dm/` 配下の変更なら `docs/機能定義書/DM機能定義書.md` と `docs/要件定義書.md`・`docs/DB設計書.md` の関連箇所のみ確認すれば足りる）。差異確認の対象を絞れない大きな変更（新機能追加等）の場合のみ、関連する複数ドキュメントを横断的に確認する。`README.md` は毎回対象に含めてよい。
 
 **確認観点：**
 

@@ -1,0 +1,28 @@
+# ローカル開発用プロファイル。ルートの docker-compose.yml が起動する PostgreSQL に接続する想定。
+# 起動例: ./gradlew bootRun --args='--spring.profiles.active=dev,seed'
+spring:
+  docker:
+    compose:
+      # docker-compose.yml はリポジトリルート(apps/api の2階層上)に置いている(計画書§9)
+      file: ../../docker-compose.yml
+      # 既にリポジトリルートで `docker compose up -d postgres` を実行している場合、
+      # bootRun のたびに再起動させない(既存コンテナを検知して再利用する)
+      lifecycle-management: start_only
+  datasource:
+    url: jdbc:postgresql://localhost:5432/chatspace
+    username: chatspace
+    password: chatspace
+  jpa:
+    show-sql: true
+
+chatspace:
+  jwt-secret: dev-only-secret-do-not-use-in-production
+  # プロファイル固有ファイルでハードコードすると環境変数WEB_ORIGINでの上書きが効かなくなるため、
+  # application.ymlと同じプレースホルダ形式にする(別ポートでフロントエンドを起動して確認したい場合に
+  # 環境変数で上書きできるようにするため)
+  web-origin: ${WEB_ORIGIN:http://localhost:5173}
+  upload-dir: ./uploads
+
+logging:
+  level:
+    com.chatspace: DEBUG

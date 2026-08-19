@@ -1,6 +1,8 @@
 import { marked } from "marked";
 import DOMPurify, { type Config } from "dompurify";
-import { MENTION_REGEX } from "@chatspace/shared";
+
+/** バックエンド`MentionResolver`の正規表現と同一(メッセージング機能定義書§3・メンション機能定義書§3.2)。 */
+export const MENTION_REGEX = /@([a-zA-Z0-9_.-]{3,20})/g;
 
 marked.setOptions({ gfm: true, breaks: true });
 
@@ -12,11 +14,10 @@ DOMPurify.addHook("afterSanitizeAttributes", (node) => {
   }
 });
 
-// img タグは意図的に許可しない。Markdown本文中に外部URLの画像(![alt](url))を
-// 埋め込めてしまうと、DOMPurifyではスクリプト実行を伴わない「トラッキングピクセル」
-// (画像取得リクエストを使った閲覧者のIPアドレス・閲覧タイミングの収集)を防げないため。
-// 実際の画像・動画添付は Markdown 経由ではなく、自ドメインの /uploads/ API から配信される
-// 別経路(MessageItem の attachments 表示)で行われるため、img を外しても添付機能自体には影響しない。
+// img タグは意図的に許可しない。Markdown本文中に外部URLの画像(![alt](url))を埋め込めてしまうと、
+// DOMPurifyではスクリプト実行を伴わない「トラッキングピクセル」(画像取得リクエストを使った閲覧者の
+// IPアドレス・閲覧タイミングの収集)を防げないため。実際の画像・動画添付はMarkdown経由ではなく、
+// 自ドメインの/uploads/APIから配信される別経路(添付ファイルプレビュー)で行う。
 const SANITIZE_CONFIG: Config = {
   ALLOWED_TAGS: [
     "p",
@@ -45,16 +46,25 @@ const SANITIZE_CONFIG: Config = {
     "td",
     "span",
   ],
-  ALLOWED_ATTR: ["href", "title", "class", "target", "rel", "data-mention"],
+  // classは意図的に許可しない。許可すると、アプリ自身がビルドに含むTailwindユーティリティクラス
+  // (例: fixed inset-0 z-50 bg-white)をメッセージ本文経由で任意の許可タグに付与でき、スクリプト実行
+  // 無しで偽オーバーレイを表示するUI偽装・クリックジャッキングが成立してしまう(レビュー指摘対応)。
+  // メンションハイライト用のspanクラスはサニタイズ後にhighlightMentions()がJSで動的付与するため、
+  // ALLOWED_ATTRに無くても問題ない。
+  ALLOWED_ATTR: ["href", "title", "target", "rel", "data-mention"],
 };
 
 /**
- * メッセージ本文を Markdown -> サニタイズ済み HTML に変換する。
- * XSS対策として、必ず marked でのHTML化直後に DOMPurify でサニタイズしてから利用する。
+ * メッセージ本文をMarkdown→サニタイズ済みHTMLに変換する。XSS対策として、必ずmarkedでのHTML化直後に
+ * DOMPurifyでサニタイズしてから利用する(計画書§8: Markdownレンダリングはクライアント側のみで行い、
+ * バックエンドは入力値のバリデーションのみ担当する方針)。
  */
 export function renderMessageBody(body: string): string {
   const rawHtml = marked.parse(body, { async: false }) as string;
-  const clean = DOMPurify.sanitize(rawHtml, { ...SANITIZE_CONFIG, RETURN_TRUSTED_TYPE: false }) as string;
+  const clean = DOMPurify.sanitize(rawHtml, {
+    ...SANITIZE_CONFIG,
+    RETURN_TRUSTED_TYPE: false,
+  }) as unknown as string;
   return highlightMentions(clean);
 }
 
@@ -83,7 +93,7 @@ function highlightMentions(html: string): string {
       const [full, handle] = match;
       frag.appendChild(document.createTextNode(text.slice(lastIndex, match.index)));
       const span = document.createElement("span");
-      span.className = "rounded bg-brand-100 px-1 font-medium text-brand-700 dark:bg-brand-900/50 dark:text-brand-200";
+      span.className = "rounded bg-brand-100 px-1 font-medium text-brand-700";
       span.textContent = full;
       span.dataset.mention = handle;
       frag.appendChild(span);

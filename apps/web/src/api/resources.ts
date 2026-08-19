@@ -1,158 +1,148 @@
-import type {
-  AttachmentDTO,
-  AuthSessionDTO,
-  ChannelDTO,
-  CreateChannelInput,
-  CreateWorkspaceInput,
-  DMThreadDTO,
-  InviteToWorkspaceInput,
-  LoginInput,
-  MessageDTO,
-  NotificationDTO,
-  SignupInput,
-  UpdateProfileInput,
-  UserDTO,
-  WorkspaceDTO,
-  WorkspaceMemberDTO,
-} from "@chatspace/shared";
 import { api } from "./client";
+import type {
+  ChannelMemberResponse,
+  ChannelResponse,
+  CreateChannelRequest,
+  CreateDmRequest,
+  CreateMessageRequest,
+  CreateWorkspaceRequest,
+  DmThreadResponse,
+  EditMessageRequest,
+  InviteChannelMemberRequest,
+  InviteWorkspaceMemberRequest,
+  KickWorkspaceMemberRequest,
+  LoginRequest,
+  MentionCandidatesResponse,
+  MessageContextResponse,
+  MessageListResponse,
+  MessageResponse,
+  NotificationListResponse,
+  SearchResponse,
+  SignupRequest,
+  ToggleReactionRequest,
+  UpdateProfileRequest,
+  UploadResponse,
+  UserResponse,
+  WorkspaceMemberResponse,
+  WorkspaceResponse,
+} from "./types";
 
 export const authApi = {
-  signup: (input: SignupInput) => api.post<AuthSessionDTO>("/auth/signup", input),
-  login: (input: LoginInput) => api.post<AuthSessionDTO>("/auth/login", input),
+  me: () => api.get<UserResponse>("/auth/me"),
+  login: (body: LoginRequest) => api.post<UserResponse>("/auth/login", body),
+  signup: (body: SignupRequest) => api.post<UserResponse>("/auth/signup", body),
   logout: () => api.post<void>("/auth/logout"),
-  me: () => api.get<AuthSessionDTO>("/auth/me"),
 };
 
 export const userApi = {
-  updateProfile: (input: UpdateProfileInput) => api.patch<{ user: UserDTO }>("/users/me", input),
-  lookup: (userId: string) => api.get<{ user: UserDTO | null }>(`/users/lookup?userId=${encodeURIComponent(userId)}`),
+  updateProfile: (body: UpdateProfileRequest) => api.patch<UserResponse>("/users/me", body),
 };
 
 export const workspaceApi = {
-  list: () => api.get<{ workspaces: WorkspaceDTO[] }>("/workspaces"),
-  create: (input: CreateWorkspaceInput) => api.post<{ workspace: WorkspaceDTO }>("/workspaces", input),
-  members: (workspaceId: string) =>
-    api.get<{ members: WorkspaceMemberDTO[] }>(`/workspaces/${workspaceId}/members`),
-  invite: (workspaceId: string, input: InviteToWorkspaceInput) =>
-    api.post<{ member: WorkspaceMemberDTO }>(`/workspaces/${workspaceId}/invite`, input),
-  kick: (workspaceId: string, userId: string) =>
-    api.post<void>(`/workspaces/${workspaceId}/kick`, { userId }),
+  list: () => api.get<WorkspaceResponse[]>("/workspaces"),
+  create: (body: CreateWorkspaceRequest) => api.post<WorkspaceResponse>("/workspaces", body),
   leave: (workspaceId: string) => api.post<void>(`/workspaces/${workspaceId}/leave`),
-  presence: (workspaceId: string) => api.get<{ onlineUserIds: string[] }>(`/workspaces/${workspaceId}/presence`),
+  invite: (workspaceId: string, body: InviteWorkspaceMemberRequest) =>
+    api.post<void>(`/workspaces/${workspaceId}/invite`, body),
+  kick: (workspaceId: string, body: KickWorkspaceMemberRequest) =>
+    api.post<void>(`/workspaces/${workspaceId}/kick`, body),
+  members: (workspaceId: string) =>
+    api.get<WorkspaceMemberResponse[]>(`/workspaces/${workspaceId}/members`),
+  presence: (workspaceId: string) => api.get<string[]>(`/workspaces/${workspaceId}/presence`),
 };
 
 export const channelApi = {
-  list: (workspaceId: string) => api.get<{ channels: ChannelDTO[] }>(`/workspaces/${workspaceId}/channels`),
-  create: (workspaceId: string, input: CreateChannelInput) =>
-    api.post<{ channel: ChannelDTO }>(`/workspaces/${workspaceId}/channels`, input),
+  list: (workspaceId: string) => api.get<ChannelResponse[]>(`/workspaces/${workspaceId}/channels`),
+  create: (workspaceId: string, body: CreateChannelRequest) =>
+    api.post<ChannelResponse>(`/workspaces/${workspaceId}/channels`, body),
   join: (workspaceId: string, channelId: string) =>
-    api.post<{ channel: ChannelDTO }>(`/workspaces/${workspaceId}/channels/${channelId}/join`),
-  remove: (workspaceId: string, channelId: string) =>
-    api.delete<void>(`/workspaces/${workspaceId}/channels/${channelId}`),
+    api.post<void>(`/workspaces/${workspaceId}/channels/${channelId}/join`),
   markRead: (workspaceId: string, channelId: string) =>
     api.post<void>(`/workspaces/${workspaceId}/channels/${channelId}/read`),
   members: (workspaceId: string, channelId: string) =>
-    api.get<{ members: { user: UserDTO; joinedAt: string }[] }>(
-      `/workspaces/${workspaceId}/channels/${channelId}/members`,
+    api.get<ChannelMemberResponse[]>(`/workspaces/${workspaceId}/channels/${channelId}/members`),
+  invite: (workspaceId: string, channelId: string, body: InviteChannelMemberRequest) =>
+    api.post<void>(`/workspaces/${workspaceId}/channels/${channelId}/members`, body),
+  removeMember: (workspaceId: string, channelId: string, targetUserId: string) =>
+    api.delete<void>(`/workspaces/${workspaceId}/channels/${channelId}/members/${targetUserId}`),
+  delete: (workspaceId: string, channelId: string) =>
+    api.delete<void>(`/workspaces/${workspaceId}/channels/${channelId}`),
+  mentionCandidates: (workspaceId: string, channelId: string, q: string) =>
+    api.get<MentionCandidatesResponse>(
+      `/workspaces/${workspaceId}/channels/${channelId}/mentions/candidates`,
+      { q },
     ),
-  addMember: (workspaceId: string, channelId: string, userId: string) =>
-    api.post<void>(`/workspaces/${workspaceId}/channels/${channelId}/members`, { userId }),
-  removeMember: (workspaceId: string, channelId: string, userId: string) =>
-    api.delete<void>(`/workspaces/${workspaceId}/channels/${channelId}/members/${userId}`),
 };
 
 export const dmApi = {
-  list: (workspaceId: string) => api.get<{ dmThreads: DMThreadDTO[] }>(`/workspaces/${workspaceId}/dms`),
-  open: (workspaceId: string, userId: string) =>
-    api.post<{ dmThread: DMThreadDTO }>(`/workspaces/${workspaceId}/dms`, { userId }),
+  list: (workspaceId: string) => api.get<DmThreadResponse[]>(`/workspaces/${workspaceId}/dms`),
+  getOrCreate: (workspaceId: string, body: CreateDmRequest) =>
+    api.post<DmThreadResponse>(`/workspaces/${workspaceId}/dms`, body),
   markRead: (workspaceId: string, dmId: string) =>
     api.post<void>(`/workspaces/${workspaceId}/dms/${dmId}/read`),
 };
 
-interface MessagesResponse {
-  messages: MessageDTO[];
+/** チャンネル/DM共通のメッセージAPI(計画書§3、apps/apiのMessageControllerと同様に統合する)。 */
+function messagesBasePath(workspaceId: string, scope: { channelId?: string; dmId?: string }) {
+  if (scope.channelId) return `/workspaces/${workspaceId}/channels/${scope.channelId}/messages`;
+  if (scope.dmId) return `/workspaces/${workspaceId}/dms/${scope.dmId}/messages`;
+  throw new Error("channelIdまたはdmIdのいずれかを指定してください。");
 }
 
 export const messageApi = {
-  listChannel: (workspaceId: string, channelId: string, before?: string) =>
-    api.get<MessagesResponse>(
-      `/workspaces/${workspaceId}/channels/${channelId}/messages${before ? `?before=${encodeURIComponent(before)}` : ""}`,
-    ),
-  listDM: (workspaceId: string, dmId: string, before?: string) =>
-    api.get<MessagesResponse>(
-      `/workspaces/${workspaceId}/dms/${dmId}/messages${before ? `?before=${encodeURIComponent(before)}` : ""}`,
-    ),
-  createChannel: (
+  list: (
     workspaceId: string,
-    channelId: string,
-    input: { body: string; parentId?: string | null; attachmentIds?: string[] },
-  ) => api.post<{ message: MessageDTO }>(`/workspaces/${workspaceId}/channels/${channelId}/messages`, input),
-  createDM: (
+    scope: { channelId?: string; dmId?: string },
+    cursor?: { cursorCreatedAt?: string; cursorId?: string },
+  ) => api.get<MessageListResponse>(messagesBasePath(workspaceId, scope), cursor),
+  create: (workspaceId: string, scope: { channelId?: string; dmId?: string }, body: CreateMessageRequest) =>
+    api.post<MessageResponse>(messagesBasePath(workspaceId, scope), body),
+  edit: (
     workspaceId: string,
-    dmId: string,
-    input: { body: string; parentId?: string | null; attachmentIds?: string[] },
-  ) => api.post<{ message: MessageDTO }>(`/workspaces/${workspaceId}/dms/${dmId}/messages`, input),
-  updateChannel: (workspaceId: string, channelId: string, messageId: string, body: string) =>
-    api.patch<{ message: MessageDTO }>(
-      `/workspaces/${workspaceId}/channels/${channelId}/messages/${messageId}`,
-      { body },
-    ),
-  updateDM: (workspaceId: string, dmId: string, messageId: string, body: string) =>
-    api.patch<{ message: MessageDTO }>(`/workspaces/${workspaceId}/dms/${dmId}/messages/${messageId}`, { body }),
-  deleteChannel: (workspaceId: string, channelId: string, messageId: string) =>
-    api.delete<void>(`/workspaces/${workspaceId}/channels/${channelId}/messages/${messageId}`),
-  deleteDM: (workspaceId: string, dmId: string, messageId: string) =>
-    api.delete<void>(`/workspaces/${workspaceId}/dms/${dmId}/messages/${messageId}`),
-  reactChannel: (workspaceId: string, channelId: string, messageId: string, emoji: string) =>
-    api.post<{ message: MessageDTO }>(
-      `/workspaces/${workspaceId}/channels/${channelId}/messages/${messageId}/reactions`,
-      { emoji },
-    ),
-  reactDM: (workspaceId: string, dmId: string, messageId: string, emoji: string) =>
-    api.post<{ message: MessageDTO }>(`/workspaces/${workspaceId}/dms/${dmId}/messages/${messageId}/reactions`, {
-      emoji,
-    }),
-  repliesChannel: (workspaceId: string, channelId: string, messageId: string) =>
-    api.get<{ replies: MessageDTO[] }>(
-      `/workspaces/${workspaceId}/channels/${channelId}/messages/${messageId}/replies`,
-    ),
-  repliesDM: (workspaceId: string, dmId: string, messageId: string) =>
-    api.get<{ replies: MessageDTO[] }>(`/workspaces/${workspaceId}/dms/${dmId}/messages/${messageId}/replies`),
-  contextChannel: (workspaceId: string, channelId: string, messageId: string) =>
-    api.get<MessageContextResponse>(
-      `/workspaces/${workspaceId}/channels/${channelId}/messages/${messageId}/context`,
-    ),
-  contextDM: (workspaceId: string, dmId: string, messageId: string) =>
-    api.get<MessageContextResponse>(`/workspaces/${workspaceId}/dms/${dmId}/messages/${messageId}/context`),
-};
-
-export interface MessageContextResponse {
-  anchorMessageId: string;
-  replyMessageId: string | null;
-  hasMoreOlder: boolean;
-  messages: MessageDTO[];
-}
-
-export const searchApi = {
-  search: (workspaceId: string, q: string, channelId?: string) =>
-    api.get<MessagesResponse>(
-      `/workspaces/${workspaceId}/search?q=${encodeURIComponent(q)}${channelId ? `&channelId=${channelId}` : ""}`,
-    ),
+    scope: { channelId?: string; dmId?: string },
+    messageId: string,
+    body: EditMessageRequest,
+  ) => api.patch<MessageResponse>(`${messagesBasePath(workspaceId, scope)}/${messageId}`, body),
+  remove: (workspaceId: string, scope: { channelId?: string; dmId?: string }, messageId: string) =>
+    api.delete<void>(`${messagesBasePath(workspaceId, scope)}/${messageId}`),
+  context: (workspaceId: string, scope: { channelId?: string; dmId?: string }, messageId: string) =>
+    api.get<MessageContextResponse>(`${messagesBasePath(workspaceId, scope)}/${messageId}/context`),
+  replies: (
+    workspaceId: string,
+    scope: { channelId?: string; dmId?: string },
+    messageId: string,
+    query?: { cursorCreatedAt?: string; cursorId?: string; around?: string },
+  ) =>
+    api.get<MessageListResponse>(`${messagesBasePath(workspaceId, scope)}/${messageId}/replies`, query),
+  toggleReaction: (
+    workspaceId: string,
+    scope: { channelId?: string; dmId?: string },
+    messageId: string,
+    body: ToggleReactionRequest,
+  ) => api.post<MessageResponse>(`${messagesBasePath(workspaceId, scope)}/${messageId}/reactions`, body),
 };
 
 export const notificationApi = {
-  list: (workspaceId?: string) =>
-    api.get<{ notifications: NotificationDTO[] }>(`/notifications${workspaceId ? `?workspaceId=${workspaceId}` : ""}`),
-  unreadCount: () => api.get<{ count: number }>("/notifications/unread-count"),
+  list: (query?: { workspaceId?: string; unreadOnly?: boolean; cursorCreatedAt?: string; cursorId?: string }) =>
+    api.get<NotificationListResponse>("/notifications", query),
+  unreadCount: () => api.get<Record<string, number>>("/notifications/unread-count"),
   markRead: (notificationId: string) => api.post<void>(`/notifications/${notificationId}/read`),
-  markAllRead: (workspaceId?: string) => api.post<void>("/notifications/read-all", { workspaceId }),
+  markAllRead: (workspaceId?: string) =>
+    api.post<void>("/notifications/read-all", undefined, { workspaceId }),
+};
+
+export const searchApi = {
+  search: (
+    workspaceId: string,
+    query: { q: string; channelId?: string; cursorCreatedAt?: string; cursorId?: string },
+  ) => api.get<SearchResponse>(`/workspaces/${workspaceId}/search`, query),
 };
 
 export const uploadApi = {
-  upload: (file: File) => {
+  upload: async (file: File) => {
     const form = new FormData();
     form.append("file", file);
-    return api.upload<{ attachment: AttachmentDTO }>("/uploads", form);
+    const res = await api.upload<UploadResponse>("/uploads", form);
+    return res.attachment;
   },
 };

@@ -21,7 +21,7 @@ Node.js/Hono/Socket.IO/Prisma/SQLite のプロトタイプを土台に、Java/Sp
 | [フェーズ8](phase8.md) | OpenAPI生成パイプライン + STOMP宛先契約テスト | ✅ 完了(バックエンド側のみ、フロントエンド消費パイプラインはフェーズ9へ) |
 | [フェーズ9](phase9.md) | フロントエンド本体(`apps/web-next`。9-A〜9-Fに細分化) | ✅ 完了 |
 | [フェーズ10](phase10.md) | UX拡張(未読区切り線、検索ジャンプ、プレゼンスUI等) | ✅ 完了(タイピングインジケーター・プレゼンス表示・スレッド返信通知UI・ワークスペース自主退出はフェーズ9で先行実装済み) |
-| [フェーズ11](phase11.md) | 機能同等性チェックリストの最終確認・旧実装削除とリネーム | 未着手 |
+| [フェーズ11](phase11.md) | 機能同等性チェックリストの最終確認・旧実装削除とリネーム | ✅ 完了(`apps/api-java`→`apps/api`、`apps/web-next`→`apps/web`。未実装だった認可テスト7件も追加) |
 | [フェーズ12](phase12.md) | 仕上げ(レート制限、SameSite/CSRF再確認、ログ、情報漏洩監査) | 未着手 |
 | [フェーズ13](phase13.md) | (任意)水平スケール対応 | 未着手・任意 |
 | [フェーズ14](phase14.md) | (任意)パフォーマンステスト | 未着手・任意 |
@@ -34,7 +34,7 @@ Node.js/Hono/Socket.IO/Prisma/SQLite のプロトタイプを土台に、Java/Sp
 
 - **認可を最大リスクと位置づけ、各フェーズで対応する認可・受け入れテストを先に(失敗する状態で)書き、実装と同時に通す**(テスト設計書.md参照)
 - フェーズ0-12は単一インスタンス前提で完結させ、水平スケール対応(フェーズ13)は任意の学習発展フェーズとして切り離す
-- 旧実装(`apps/api`, `apps/web`)は、新実装が機能同等性チェックリスト(フェーズ11参照)を満たすまで削除しない。並行開発中は新バックエンドを`apps/api-java`(ポート8080)、新フロントエンドを`apps/web-next`に配置する
+- 旧実装(`apps/api`, `apps/web`)は、新実装が機能同等性チェックリスト(フェーズ11参照)を満たすまで削除しない。並行開発中は新バックエンドを`apps/api-java`(ポート8080)、新フロントエンドを`apps/web-next`に配置する(**フェーズ11完了により、現在は`apps/api`[Spring Boot、:8080]と`apps/web`[React/Vite、:5173]の2つのみ**)
 - パッケージマネージャは pnpm のみ(npm/yarn は使わない)
 
 ## 確定した使用バージョン
@@ -44,10 +44,18 @@ Java 21 / Spring Boot 4.1.0 / Gradle 9.7.0 / PostgreSQL 16(ローカル)。詳�
 ## 確認方法(現時点)
 
 ```bash
+# リポジトリルート
 docker compose up -d postgres
-cd apps/api-java
+
+# バックエンド
+cd apps/api
 ./gradlew build          # Spotless + ArchUnit + テスト + ビルド
-./gradlew bootRun --args='--spring.profiles.active=dev'   # Flywayマイグレーション自動適用
+./gradlew bootRun --args='--spring.profiles.active=dev,seed'   # Flywayマイグレーション自動適用 + シード投入
+```
+
+```bash
+# フロントエンド(別ターミナル、リポジトリルート)
+pnpm install && pnpm run dev   # http://localhost:5173
 ```
 
 ## 関連ドキュメント

@@ -1,22 +1,23 @@
-import { FormEvent, useEffect, useState } from "react";
+import { type FormEvent, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useWorkspaceStore } from "../store/workspaceStore";
 import { useAuthStore } from "../store/authStore";
 import { ApiError } from "../api/client";
-import { workspaceApi } from "../api/resources";
 
 export default function WorkspacePickerPage() {
   const navigate = useNavigate();
   const user = useAuthStore((s) => s.user);
   const logout = useAuthStore((s) => s.logout);
-  const { workspaces, loadWorkspaces, addWorkspace } = useWorkspaceStore();
+  const workspaces = useWorkspaceStore((s) => s.workspaces);
+  const fetchWorkspaces = useWorkspaceStore((s) => s.fetchWorkspaces);
+  const createWorkspace = useWorkspaceStore((s) => s.createWorkspace);
   const [name, setName] = useState("");
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    loadWorkspaces();
-  }, [loadWorkspaces]);
+    fetchWorkspaces();
+  }, [fetchWorkspaces]);
 
   async function handleCreate(e: FormEvent) {
     e.preventDefault();
@@ -24,8 +25,7 @@ export default function WorkspacePickerPage() {
     setError(null);
     setCreating(true);
     try {
-      const { workspace } = await workspaceApi.create({ name: name.trim() });
-      addWorkspace(workspace);
+      const workspace = await createWorkspace(name.trim());
       setName("");
       navigate(`/w/${workspace.id}`);
     } catch (err) {

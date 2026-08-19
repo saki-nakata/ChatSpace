@@ -1,58 +1,131 @@
-import { useState } from "react";
-import { useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { useWorkspaceStore } from "../store/workspaceStore";
-import { channelApi } from "../api/resources";
+import { useEffect, useState } from "react";
+import { useNavigate, useOutletContext, useParams, useSearchParams } from "react-router-dom";
 import ChatView from "../components/chat/ChatView";
-import ChannelMembersModal from "../components/modals/ChannelMembersModal";
+import ChannelMembersModal from "../components/workspace/ChannelMembersModal";
+import { channelApi } from "../api/resources";
+import { ApiError } from "../api/client";
+import { useAuthStore } from "../store/authStore";
+import type { UserResponse } from "../api/types";
+import type { WorkspaceShellContext } from "./WorkspaceShellPage";
 
+/** S-05チャンネル画面。ヘッダー(チャンネル名・メンバー管理・オーナー限定の削除)を含む。 */
 export default function ChannelPage() {
   const { workspaceId, channelId } = useParams<{ workspaceId: string; channelId: string }>();
-  const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const { channels, workspaces, removeChannel } = useWorkspaceStore();
-  const channel = channels.find((c) => c.id === channelId);
-  const workspace = workspaces.find((w) => w.id === workspaceId);
-  const [showMembers, setShowMembers] = useState(false);
+  const currentUser = useAuthStore((s) => s.user);
+  const { channels, isOwner, refreshSidebar } = useOutletContext<WorkspaceShellContext>();
+  const [searchParams, setSearchParams] = useSearchParams();
+  // ?highlight=<ジャンプ先ID(スレッド返信の場合は親メッセージID)>&reply=<返信ID>(S-12検索/S-13通知からの遷移)。
+  // replyがある場合のみS-07スレッドパネルを自動的に開く(詳細はChatViewのjumpMessageId/jumpReplyId参照)。
+  const jumpMessageId = searchParams.get("highlight") ?? undefined;
+  const jumpReplyId = searchParams.get("reply") ?? undefined;
 
-  if (!workspaceId || !channelId) return null;
+  // ジャンプ処理完了後にURLの?highlight=/?reply=を消す(D-1: 同じ検索結果の再クリックが無反応になる問題、
+  // リロード時に古いジャンプ先へ再ジャンプしてしまう問題への対応)。
+  function handleJumpHandled() {
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete("highlight");
+        next.delete("reply");
+        return next;
+      },
+      { replace: true },
+    );
+  }
+  // チャンネル切替時もあえてリセットしない(前チャンネルのuserMapを一時的に見せたまま新しい方に
+  // 差し替える)。ヘッダーごと空にするより自然で、切替のたびに画面全体が一瞬白くなる問題を避けられる
+  // (レビュー指摘対応)。ChatView自体は`scopeKey`変更で自律的にメッセージを再取得するため、
+  // userMapの読み込みでページ全体の描画をブロックする必要が無い。
+  const [userMap, setUserMap] = useState<Record<string, UserResponse>>({});
+  const [membersOpen, setMembersOpen] = useState(false);
+  const [membersTrigger, setMembersTrigger] = useState<HTMLElement | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!workspaceId || !channelId) return;
+    channelApi.members(workspaceId, channelId).then((members) => {
+      const map: Record<string, UserResponse> = {};
+      for (const m of members) {
+        if (m.user) map[m.user.id!] = m.user;
+      }
+      setUserMap(map);
+    });
+  }, [workspaceId, channelId]);
+
+  if (!workspaceId || !channelId || !currentUser) return null;
+
+  const channel = channels.find((c) => c.id === channelId);
+  const channelName = channel?.name ?? "";
 
   async function handleDeleteChannel() {
-    if (!confirm(`#${channel?.name} を削除しますか?この操作は取り消せません。`)) return;
-    await channelApi.remove(workspaceId!, channelId!);
-    removeChannel(channelId!);
-    navigate(`/w/${workspaceId}`);
+    if (!workspaceId || !channelId) return;
+    if (!window.confirm(`#${channelName} を削除しますか?この操作は取り消せません。`)) return;
+    try {
+      await channelApi.delete(workspaceId, channelId);
+      refreshSidebar();
+      navigate(`/w/${workspaceId}`);
+    } catch (err) {
+      setDeleteError(err instanceof ApiError ? err.message : "チャンネルの削除に失敗しました。");
+    }
   }
+
+  const header = (
+    <div className="border-b border-slate-200 bg-white px-4 py-2">
+      <div className="flex items-center justify-between">
+        <h1 className="text-sm font-bold text-slate-800">
+          {channel?.type === "PRIVATE" ? "🔒" : "#"} {channelName}
+        </h1>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={(e) => {
+              setMembersTrigger(e.currentTarget);
+              setMembersOpen(true);
+            }}
+            className="text-xs font-medium text-slate-500 hover:text-slate-700"
+          >
+            メンバー
+          </button>
+          {isOwner && (
+            <button
+              onClick={handleDeleteChannel}
+              className="text-xs font-medium text-red-600 hover:underline"
+            >
+              チャンネル削除
+            </button>
+          )}
+        </div>
+      </div>
+      {deleteError && <p className="mt-1 text-xs text-red-600">{deleteError}</p>}
+    </div>
+  );
 
   return (
     <>
       <ChatView
-        key={channelId}
         workspaceId={workspaceId}
-        scopeType="channel"
-        scopeId={channelId}
-        title={channel ? `${channel.type === "PRIVATE" ? "🔒" : "#"} ${channel.name}` : "..."}
-        initialHighlightMessageId={searchParams.get("highlight")}
-        initialReplyMessageId={searchParams.get("reply")}
-        headerExtra={
-          <div className="flex items-center gap-3 text-xs">
-            <button onClick={() => setShowMembers(true)} className="text-slate-500 hover:text-slate-800">
-              メンバー
-            </button>
-            {workspace?.myRole === "OWNER" && (
-              <button onClick={handleDeleteChannel} className="text-red-500 hover:text-red-700">
-                チャンネル削除
-              </button>
-            )}
-          </div>
-        }
+        scope={{ channelId }}
+        userMap={userMap}
+        placeholder="メッセージを入力..."
+        jumpMessageId={jumpMessageId}
+        jumpReplyId={jumpReplyId}
+        header={header}
+        onRead={refreshSidebar}
+        onJumpHandled={handleJumpHandled}
       />
-      {showMembers && channel && (
+      {membersOpen && (
         <ChannelMembersModal
           workspaceId={workspaceId}
           channelId={channelId}
-          channelName={channel.name}
-          isWorkspaceOwner={workspace?.myRole === "OWNER"}
-          onClose={() => setShowMembers(false)}
+          channelName={channelName}
+          isWorkspaceOwner={isOwner}
+          currentUserId={currentUser.id ?? ""}
+          onClose={() => setMembersOpen(false)}
+          onSelfRemoved={() => {
+            refreshSidebar();
+            navigate(`/w/${workspaceId}`);
+          }}
+          restoreFocusTo={membersTrigger}
         />
       )}
     </>

@@ -8,6 +8,16 @@ body,
   height: 100%;
 }
 
+/* iOS Safariはアドレスバーの伸縮でビューポート高さが変わり、100%(=100vh相当)だと入力欄が画面外に
+   押し出される既知の問題があるため、対応ブラウザでは動的ビューポート単位に切り替える(フェーズ9-F、
+   プロトタイプには無い新規対応)。未対応ブラウザは上記の100%指定のままフォールバックする。 */
+@supports (height: 100dvh) {
+  body,
+  #root {
+    height: 100dvh;
+  }
+}
+
 body {
   @apply bg-slate-50 text-slate-900 antialiased;
 }
