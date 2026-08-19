@@ -24,7 +24,7 @@
 ### 確認方法
 
 ```bash
-cd apps/api-java
+cd apps/api
 ./gradlew build
 # レート制限の手動確認(規定回数を超えるログイン試行)
 ```

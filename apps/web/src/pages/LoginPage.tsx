@@ -1,4 +1,4 @@
-import { FormEvent, useState } from "react";
+import { type FormEvent, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuthStore } from "../store/authStore";
 import { ApiError } from "../api/client";
@@ -33,8 +33,13 @@ export default function LoginPage() {
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="mb-1 block text-sm font-medium text-slate-700">ユーザーID</label>
+            <label htmlFor="login-userId" className="mb-1 block text-sm font-medium text-slate-700">
+              ユーザーID
+            </label>
             <input
+              id="login-userId"
+              name="userId"
+              autoComplete="username"
               className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500"
               value={userId}
               onChange={(e) => setUserId(e.target.value)}
@@ -43,9 +48,14 @@ export default function LoginPage() {
             />
           </div>
           <div>
-            <label className="mb-1 block text-sm font-medium text-slate-700">パスワード</label>
+            <label htmlFor="login-password" className="mb-1 block text-sm font-medium text-slate-700">
+              パスワード
+            </label>
             <input
+              id="login-password"
+              name="password"
               type="password"
+              autoComplete="current-password"
               className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500"
               value={password}
               onChange={(e) => setPassword(e.target.value)}

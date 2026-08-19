@@ -1,34 +1,23 @@
-import { FormEvent, useState } from "react";
+import { type FormEvent, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuthStore } from "../store/authStore";
 import { ApiError } from "../api/client";
-import { USER_ID_REGEX } from "@chatspace/shared";
 
 export default function SignupPage() {
   const navigate = useNavigate();
   const signup = useAuthStore((s) => s.signup);
   const [userId, setUserId] = useState("");
-  const [displayName, setDisplayName] = useState("");
   const [password, setPassword] = useState("");
+  const [displayName, setDisplayName] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
-
-    if (!USER_ID_REGEX.test(userId)) {
-      setError("ユーザーIDは英数字・_・.・- のみ、3〜20文字で入力してください。");
-      return;
-    }
-    if (password.length < 8) {
-      setError("パスワードは8文字以上で入力してください。");
-      return;
-    }
-
     setSubmitting(true);
     try {
-      await signup(userId, password, displayName || userId);
+      await signup(userId, password, displayName);
       navigate("/", { replace: true });
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "登録に失敗しました。");
@@ -41,38 +30,55 @@ export default function SignupPage() {
     <div className="flex min-h-full items-center justify-center bg-brand-50 px-4">
       <div className="w-full max-w-sm rounded-xl bg-white p-8 shadow-sm">
         <h1 className="mb-1 text-2xl font-bold text-brand-700">ChatSpace</h1>
-        <p className="mb-6 text-sm text-slate-500">新規アカウント登録(メール認証は不要です)</p>
+        <p className="mb-6 text-sm text-slate-500">新規アカウント登録</p>
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="mb-1 block text-sm font-medium text-slate-700">ユーザーID</label>
+            <label htmlFor="signup-userId" className="mb-1 block text-sm font-medium text-slate-700">
+              ユーザーID
+            </label>
             <input
+              id="signup-userId"
+              name="userId"
+              autoComplete="username"
               className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500"
               value={userId}
               onChange={(e) => setUserId(e.target.value)}
-              placeholder="例: taro_yamada"
               autoFocus
               required
+              pattern="^[a-zA-Z0-9_.\-]{3,20}$"
+              title="英数字・._- のみ、3〜20文字"
             />
           </div>
           <div>
-            <label className="mb-1 block text-sm font-medium text-slate-700">表示名</label>
+            <label htmlFor="signup-displayName" className="mb-1 block text-sm font-medium text-slate-700">
+              表示名
+            </label>
             <input
+              id="signup-displayName"
+              name="displayName"
+              autoComplete="nickname"
               className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500"
               value={displayName}
               onChange={(e) => setDisplayName(e.target.value)}
-              placeholder="例: 山田太郎"
+              required
+              maxLength={50}
             />
           </div>
           <div>
-            <label className="mb-1 block text-sm font-medium text-slate-700">パスワード</label>
+            <label htmlFor="signup-password" className="mb-1 block text-sm font-medium text-slate-700">
+              パスワード
+            </label>
             <input
+              id="signup-password"
+              name="password"
               type="password"
+              autoComplete="new-password"
               className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder="8文字以上"
               required
+              minLength={8}
             />
           </div>
 
@@ -83,7 +89,7 @@ export default function SignupPage() {
             disabled={submitting}
             className="w-full rounded-md bg-brand-500 py-2 text-sm font-semibold text-white transition hover:bg-brand-600 disabled:opacity-50"
           >
-            {submitting ? "登録中..." : "登録する"}
+            {submitting ? "登録中..." : "登録"}
           </button>
         </form>
 

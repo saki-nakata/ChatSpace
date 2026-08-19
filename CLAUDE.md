@@ -4,27 +4,44 @@ Slack風チャットアプリケーション。
 
 ## 現在の状況
 
-プロトタイプ実装済み(feature/prototype-scaffold ブランチ)。
-技術スタック: pnpm workspace + React/Vite(フロント) + Hono/Socket.IO/Prisma(SQLite)(バックエンド)。
-詳細は [README.md](README.md) の「技術スタック」「セットアップ」を参照。
+Java/Spring Boot + STOMP + PostgreSQL への再設計が完了し、旧プロトタイプ(Node/Hono/Socket.IO/Prisma/SQLite)は
+フェーズ11で削除済み。技術スタック・セットアップ手順は [README.md](README.md) を参照。
+フェーズ単位の実装経緯は [`実装計画書/`](実装計画書/) を参照。
+
+```
+apps/api/   Spring Boot製REST API + STOMPサーバー(ポート 8080)
+apps/web/   React + Vite製フロントエンド(ポート 5173)
+```
 
 未実装・簡易実装のまま残っている点:
-- メッセージ検索は DB の `contains` による部分一致(全文検索エンジンは未導入。大文字小文字は区別される)
 - 添付ファイルはマジックバイト検証まで実施しているが、ウイルススキャン等は行っていない
-- オンライン/オフラインのプレゼンス管理は単一プロセスのメモリ上で保持(水平スケール非対応)
-- 自動テストは認可クリティカルパス(messageIdスコープ・プライベートチャンネル非可視・オーナー限定操作)に絞っており、全機能を網羅していない
+- オンライン/オフラインのプレゼンス管理は単一プロセスのメモリ上で保持(水平スケール非対応。フェーズ13・任意)
+- レート制限・ログ整備・情報漏洩監査はフェーズ12で対応予定
+- 自動テストは認可クリティカルパス中心。AUTH-P01〜P10・AUTH-N01〜N29 は全て自動テスト化済み(バックエンド81件)だが、全機能の網羅ではない
 
 ### ビルド・テスト・Lint
 
 ```bash
-pnpm install                          # 依存関係インストール
-pnpm run build                        # 全パッケージビルド(shared -> api -> web)
-pnpm run typecheck                    # 全パッケージ型チェック
-pnpm run lint                         # 全パッケージ ESLint(警告0件が必須)
-pnpm run test                         # apps/api の認可テスト(vitest、専用DBを自動マイグレーション)
-pnpm run dev                          # API(:4000) + Web(:5173) 同時起動
-pnpm --filter @chatspace/api run db:migrate   # Prismaマイグレーション
-pnpm run db:seed                      # 初期データ投入(alice/bob/carol, password123)
+# ローカル用 PostgreSQL(リポジトリルート)
+docker compose up -d postgres
+```
+
+```bash
+# バックエンド(apps/api で実行)
+cd apps/api
+./gradlew build                                              # Spotless + ArchUnit + 全テスト + jar
+./gradlew bootRun --args='--spring.profiles.active=dev,seed'  # 起動(:8080) + シード投入
+./gradlew exportStompDestinations                            # 契約テスト用JSON書き出し
+```
+
+```bash
+# フロントエンド(リポジトリルートで実行)
+pnpm install
+pnpm run typecheck
+pnpm run lint      # 警告0件が必須
+pnpm run build
+pnpm run test      # STOMP宛先の契約テスト(vitest)。事前に exportStompDestinations が必要
+pnpm run dev       # Web(:5173)
 ```
 
 ## 機能要件

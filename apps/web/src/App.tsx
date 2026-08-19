@@ -18,9 +18,7 @@ function RequireAuth({ children }: { children: React.ReactElement }) {
 
 function FullScreenLoader() {
   return (
-    <div className="flex h-full items-center justify-center text-slate-500">
-      読み込み中...
-    </div>
+    <div className="flex h-full items-center justify-center text-slate-500">読み込み中...</div>
   );
 }
 

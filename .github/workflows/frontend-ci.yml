@@ -1,0 +1,87 @@
+name: Frontend CI (apps/web)
+
+on:
+  pull_request:
+    paths:
+      - "apps/web/**"
+      - ".github/workflows/frontend-ci.yml"
+      # STOMP宛先契約テスト(AUTH-N18)はJava側の宛先定義と突き合わせるため、
+      # バックエンド単独の変更でもドリフトを検出できるようトリガーに含める
+      - "apps/api/src/main/java/com/chatspace/api/realtime/StompDestinations.java"
+      - "apps/api/build.gradle.kts"
+  push:
+    branches: [main]
+    paths:
+      - "apps/web/**"
+      - ".github/workflows/frontend-ci.yml"
+      # STOMP宛先契約テスト(AUTH-N18)はJava側の宛先定義と突き合わせるため、
+      # バックエンド単独の変更でもドリフトを検出できるようトリガーに含める
+      - "apps/api/src/main/java/com/chatspace/api/realtime/StompDestinations.java"
+      - "apps/api/build.gradle.kts"
+
+concurrency:
+  group: frontend-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: apps/web
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: "pnpm"
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # pnpm run <script> はスクリプト名を1つしか取らないため個別に実行する
+      # (計画書のレビュー指摘: typecheck lint build と空白区切りで並べると動作しない)
+      - name: Type check
+        run: pnpm --filter @chatspace/web run typecheck
+
+      - name: Lint (warnings not allowed)
+        run: pnpm --filter @chatspace/web run lint
+
+      - name: Build
+        run: pnpm --filter @chatspace/web run build
+
+      # STOMP宛先契約テスト(AUTH-N18)がapps/apiの出力するJSONと突き合わせるため、
+      # フロントエンドのテストを実行する前にバックエンドをビルドしてJSONを生成しておく
+      - name: Set up JDK 21 (for STOMP destinations contract test)
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Cache Gradle dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('apps/api/**/*.gradle*', 'apps/api/gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: |
+            gradle-${{ runner.os }}-
+
+      - name: Export STOMP destinations JSON (apps/api)
+        working-directory: apps/api
+        run: ./gradlew exportStompDestinations --console=plain
+
+      - name: Test (STOMP destinations contract test)
+        run: pnpm --filter @chatspace/web run test

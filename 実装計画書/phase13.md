@@ -38,7 +38,7 @@
 ```bash
 # docker-compose.yml に Redis・RabbitMQ・共有ボリュームを追記した上で
 docker compose up -d
-cd apps/api-java
+cd apps/api
 ./gradlew build   # Testcontainers に Redis/RabbitMQ を追加
 # 2インスタンス起動して SCALE-01〜06 を手動/自動で確認
 ```

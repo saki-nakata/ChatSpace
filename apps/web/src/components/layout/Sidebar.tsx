@@ -1,167 +1,160 @@
-import { useState } from "react";
-import { Link, NavLink, useNavigate, useParams } from "react-router-dom";
-import type { WorkspaceDTO } from "@chatspace/shared";
-import { useWorkspaceStore } from "../../store/workspaceStore";
-import { usePresenceStore } from "../../store/presenceStore";
-import { channelApi } from "../../api/resources";
-import CreateChannelModal from "../modals/CreateChannelModal";
-import StartDMModal from "../modals/StartDMModal";
-import WorkspaceMembersModal from "../modals/WorkspaceMembersModal";
+import { Link, NavLink } from "react-router-dom";
+import type { ChannelResponse, DmThreadResponse } from "../../api/types";
+import { useDialogA11y } from "../../lib/useDialogA11y";
 
-interface Props {
-  workspaceId: string;
-  workspace: WorkspaceDTO | undefined;
-  isOpen?: boolean;
-  onClose?: () => void;
+interface SidebarProps {
+  workspaceName: string | undefined;
+  channels: ChannelResponse[];
+  dms: DmThreadResponse[];
+  isOwner: boolean;
+  onlineUserIds: Set<string>;
+  /** 640px未満でのドロワー開閉状態(640px以上では常時表示、画面設計書§2)。 */
+  isOpen: boolean;
+  onClose: () => void;
+  onCreateChannel: (e: React.MouseEvent<HTMLButtonElement>) => void;
+  onStartDm: (e: React.MouseEvent<HTMLButtonElement>) => void;
+  onOpenMembers: (e: React.MouseEvent<HTMLButtonElement>) => void;
+  restoreFocusTo?: HTMLElement | null;
 }
 
-export default function Sidebar({ workspaceId, workspace, isOpen = false, onClose }: Props) {
-  const navigate = useNavigate();
-  const { channelId: activeChannelId } = useParams<{ channelId?: string }>();
-  const { channels, dmThreads, refreshChannels } = useWorkspaceStore();
-  const onlineUserIds = usePresenceStore((s) => s.onlineUserIds);
-  const [showCreateChannel, setShowCreateChannel] = useState(false);
-  const [showStartDM, setShowStartDM] = useState(false);
-  const [showMembers, setShowMembers] = useState(false);
+const NAV_LINK_BASE = "flex items-center justify-between rounded px-2 py-1 text-sm hover:bg-brand-800";
 
-  const isOwner = workspace?.myRole === "OWNER";
-
-  async function handleChannelClick(channelId: string, isMember: boolean, type: string) {
-    if (!isMember) {
-      if (type !== "PUBLIC") return; // プライベートは招待されないと入れない
-      await channelApi.join(workspaceId, channelId);
-      await refreshChannels(workspaceId);
-    }
-    navigate(`/w/${workspaceId}/c/${channelId}`);
-    onClose?.();
-  }
+/**
+ * S-04サイドバー(フェーズ9-F、`apps/web`の`Sidebar.tsx`を移植)。640px未満では既定非表示の
+ * ドロワーとして左からオーバーレイ表示(背後に半透明の黒背景、クリックで閉じる)、640px以上では
+ * 常時表示の静的サイドバーに戻る。開いている間はEscapeで閉じ、閉じた際は起動元(☰ボタン)へ
+ * フォーカスを戻す(`useDialogA11y`、`isOpen`が常にfalseの640px以上では実質無効化される)。
+ */
+export default function Sidebar({
+  workspaceName,
+  channels,
+  dms,
+  isOwner,
+  onlineUserIds,
+  isOpen,
+  onClose,
+  onCreateChannel,
+  onStartDm,
+  onOpenMembers,
+  restoreFocusTo,
+}: SidebarProps) {
+  const asideRef = useDialogA11y<HTMLElement>(isOpen, onClose, restoreFocusTo);
 
   return (
     <>
       {isOpen && (
-        <div
-          className="fixed inset-0 z-30 bg-black/40 sm:hidden"
-          onClick={onClose}
-          aria-hidden="true"
-        />
+        <div className="fixed inset-0 z-30 bg-black/40 sm:hidden" onClick={onClose} aria-hidden="true" />
       )}
       <aside
-        className={`fixed inset-y-0 left-0 z-40 flex w-64 shrink-0 -translate-x-full transform flex-col border-r border-slate-200 bg-brand-900 text-brand-50 transition-transform duration-200 sm:static sm:z-auto sm:translate-x-0 ${
+        ref={asideRef}
+        tabIndex={-1}
+        className={`fixed inset-y-0 left-0 z-40 flex w-64 shrink-0 -translate-x-full transform flex-col border-r border-slate-200 bg-brand-900 text-brand-50 outline-none transition-transform duration-200 sm:static sm:z-auto sm:translate-x-0 ${
           isOpen ? "translate-x-0" : ""
         }`}
       >
-      <div className="flex items-center justify-between px-4 py-4">
-        <div className="min-w-0">
-          <Link to="/" className="text-xs text-brand-300 hover:text-white">
-            &larr; ワークスペース一覧
-          </Link>
-          <h1 className="truncate text-lg font-bold">{workspace?.name ?? "..."}</h1>
+        <div className="flex items-center justify-between border-b border-brand-800 px-4 py-3">
+          <div className="min-w-0">
+            <Link to="/" data-initial-focus className="text-xs text-brand-300 hover:text-white">
+              &larr; ワークスペース一覧
+            </Link>
+            <p className="truncate text-sm font-bold text-white">{workspaceName ?? "..."}</p>
+          </div>
+          <button
+            onClick={onClose}
+            aria-label="サイドバーを閉じる"
+            data-initial-focus-skip
+            className="rounded p-1 text-brand-300 hover:text-white sm:hidden"
+          >
+            ✕
+          </button>
         </div>
-        <button
-          onClick={onClose}
-          aria-label="サイドバーを閉じる"
-          className="rounded p-1 text-brand-300 hover:text-white sm:hidden"
-        >
-          ✕
-        </button>
-      </div>
-
-      <div className="flex-1 overflow-y-auto px-2 pb-4">
-        <SectionHeader
-          label="チャンネル"
-          onAdd={isOwner ? () => setShowCreateChannel(true) : undefined}
-          addTitle="チャンネルを作成"
-        />
-        <ul className="mb-4 space-y-0.5">
+        <nav className="flex-1 overflow-y-auto px-2 py-3">
+          <div className="mb-1 flex items-center justify-between px-2">
+            <p className="text-xs font-semibold uppercase text-brand-300">チャンネル</p>
+            {isOwner && (
+              <button
+                onClick={onCreateChannel}
+                className="text-xs text-brand-300 hover:text-white"
+                title="チャンネルを作成"
+              >
+                +
+              </button>
+            )}
+          </div>
           {channels.map((c) => {
-            const isActive = c.id === activeChannelId;
+            const unread = !!c.unreadCount && c.unreadCount > 0;
             return (
-              <li key={c.id}>
-                <button
-                  onClick={() => handleChannelClick(c.id, c.isMember, c.type)}
-                  className={`flex w-full items-center justify-between rounded px-2 py-1.5 text-left text-sm hover:bg-brand-800 ${
-                    isActive ? "bg-brand-800 text-white" : "text-brand-100"
-                  }`}
-                >
-                  <span className="truncate">
-                    {c.type === "PRIVATE" ? "🔒" : "#"} {c.name}
-                  </span>
-                  {c.unreadCount > 0 && (
-                    <span className="ml-2 rounded-full bg-brand-400 px-1.5 py-0.5 text-[10px] font-bold text-brand-950">
-                      {c.unreadCount}
-                    </span>
-                  )}
-                </button>
-              </li>
+              <NavLink
+                key={c.id}
+                to={`c/${c.id}`}
+                onClick={onClose}
+                className={({ isActive }) =>
+                  `${NAV_LINK_BASE} ${
+                    isActive
+                      ? "bg-brand-800 text-white"
+                      : unread
+                        ? "font-semibold text-white"
+                        : "text-brand-100"
+                  }`
+                }
+              >
+                <span className="truncate">
+                  {c.type === "PRIVATE" ? "🔒 " : "# "}
+                  {c.name}
+                </span>
+                {unread && (
+                  <span className="ml-2 rounded-full bg-brand-500 px-1.5 py-0.5 text-xs">{c.unreadCount}</span>
+                )}
+              </NavLink>
             );
           })}
-        </ul>
 
-        <SectionHeader label="ダイレクトメッセージ" onAdd={() => setShowStartDM(true)} addTitle="DMを開始" />
-        <ul className="space-y-0.5">
-          {dmThreads.map((d) => (
-            <li key={d.id}>
+          <div className="mb-1 mt-4 flex items-center justify-between px-2">
+            <p className="text-xs font-semibold uppercase text-brand-300">ダイレクトメッセージ</p>
+            <button onClick={onStartDm} className="text-xs text-brand-300 hover:text-white" title="DMを開始">
+              +
+            </button>
+          </div>
+          {dms.map((dm) => {
+            const unread = !!dm.unreadCount && dm.unreadCount > 0;
+            return (
               <NavLink
-                to={`/w/${workspaceId}/dm/${d.id}`}
-                onClick={() => onClose?.()}
+                key={dm.id}
+                to={`dm/${dm.id}`}
+                onClick={onClose}
                 className={({ isActive }) =>
-                  `flex items-center justify-between rounded px-2 py-1.5 text-sm hover:bg-brand-800 ${
-                    isActive ? "bg-brand-800 text-white" : "text-brand-100"
+                  `${NAV_LINK_BASE} ${
+                    isActive
+                      ? "bg-brand-800 text-white"
+                      : unread
+                        ? "font-semibold text-white"
+                        : "text-brand-100"
                   }`
                 }
               >
                 <span className="flex min-w-0 items-center gap-1.5 truncate">
                   <span
                     className={`h-2 w-2 shrink-0 rounded-full ${
-                      onlineUserIds.has(d.otherUser.id) ? "bg-emerald-400" : "bg-brand-700"
+                      dm.otherUser?.id && onlineUserIds.has(dm.otherUser.id) ? "bg-emerald-400" : "bg-brand-700"
                     }`}
-                    title={onlineUserIds.has(d.otherUser.id) ? "オンライン" : "オフライン"}
+                    aria-hidden="true"
                   />
-                  <span className="truncate">{d.otherUser.displayName}</span>
+                  <span className="truncate">{dm.otherUser?.displayName ?? "不明なユーザー"}</span>
                 </span>
-                {d.unreadCount > 0 && (
-                  <span className="ml-2 rounded-full bg-brand-400 px-1.5 py-0.5 text-[10px] font-bold text-brand-950">
-                    {d.unreadCount}
-                  </span>
+                {unread && (
+                  <span className="ml-2 rounded-full bg-brand-500 px-1.5 py-0.5 text-xs">{dm.unreadCount}</span>
                 )}
               </NavLink>
-            </li>
-          ))}
-        </ul>
-      </div>
-
-      <div className="border-t border-brand-800 px-3 py-3">
-        <button onClick={() => setShowMembers(true)} className="text-xs text-brand-300 hover:text-white">
-          メンバー管理 {isOwner && "(オーナー)"}
-        </button>
-      </div>
-
-      {showCreateChannel && (
-        <CreateChannelModal workspaceId={workspaceId} onClose={() => setShowCreateChannel(false)} />
-      )}
-      {showStartDM && <StartDMModal workspaceId={workspaceId} onClose={() => setShowStartDM(false)} />}
-      {showMembers && (
-        <WorkspaceMembersModal workspaceId={workspaceId} isOwner={isOwner} onClose={() => setShowMembers(false)} />
-      )}
+            );
+          })}
+        </nav>
+        <div className="border-t border-brand-800 px-4 py-3">
+          <button onClick={onOpenMembers} className="mb-2 block text-xs font-medium text-brand-300 hover:text-white">
+            メンバー管理{isOwner ? "(オーナー)" : ""}
+          </button>
+          <p className="text-xs text-brand-300">オンライン: {onlineUserIds.size}人</p>
+        </div>
       </aside>
     </>
-  );
-}
-
-function SectionHeader({ label, onAdd, addTitle }: { label: string; onAdd?: () => void; addTitle?: string }) {
-  return (
-    <div className="mb-1 mt-3 flex items-center justify-between px-2">
-      <span className="text-xs font-semibold uppercase tracking-wide text-brand-300">{label}</span>
-      {onAdd && (
-        <button
-          onClick={onAdd}
-          title={addTitle}
-          aria-label={addTitle}
-          className="rounded px-1 text-brand-300 hover:bg-brand-800 hover:text-white"
-        >
-          +
-        </button>
-      )}
-    </div>
   );
 }

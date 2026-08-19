@@ -1,15 +1,15 @@
-name: Backend CI (apps/api-java)
+name: Backend CI (apps/api)
 
 on:
   pull_request:
     paths:
-      - "apps/api-java/**"
+      - "apps/api/**"
       - "docker-compose.yml"
       - ".github/workflows/backend-ci.yml"
   push:
     branches: [main]
     paths:
-      - "apps/api-java/**"
+      - "apps/api/**"
       - "docker-compose.yml"
       - ".github/workflows/backend-ci.yml"
 
@@ -27,7 +27,7 @@ jobs:
     timeout-minutes: 20
     defaults:
       run:
-        working-directory: apps/api-java
+        working-directory: apps/api
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -44,7 +44,7 @@ jobs:
           path: |
             ~/.gradle/caches
             ~/.gradle/wrapper
-          key: gradle-${{ runner.os }}-${{ hashFiles('apps/api-java/**/*.gradle*', 'apps/api-java/gradle/wrapper/gradle-wrapper.properties') }}
+          key: gradle-${{ runner.os }}-${{ hashFiles('apps/api/**/*.gradle*', 'apps/api/gradle/wrapper/gradle-wrapper.properties') }}
           restore-keys: |
             gradle-${{ runner.os }}-
 

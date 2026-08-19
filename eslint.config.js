@@ -10,24 +10,18 @@ export default tseslint.config(
       "**/dist/**",
       "**/node_modules/**",
       "**/.vite/**",
-      "apps/api/uploads/**",
-      "apps/api/prisma/migrations/**",
       ".playwright-mcp/**",
       "delete/**",
+      // Javaバックエンド(apps/api)はESLintの対象外
+      "apps/api/**",
       // openapi-typescript生成物(手動編集しない、計画書§7)
-      "apps/web-next/src/api/schema.d.ts",
+      "apps/web/src/api/schema.d.ts",
     ],
   },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
-    files: ["apps/api/**/*.ts", "packages/shared/**/*.ts"],
-    languageOptions: {
-      globals: globals.node,
-    },
-  },
-  {
-    files: ["apps/web/**/*.{ts,tsx}", "apps/web-next/**/*.{ts,tsx}"],
+    files: ["apps/web/**/*.{ts,tsx}"],
     languageOptions: {
       globals: globals.browser,
     },
@@ -46,7 +40,7 @@ export default tseslint.config(
   },
   {
     // Vitestの契約テストはNode環境で実行するため、globals.browser相当のブラウザAPIを前提にしない
-    files: ["apps/web-next/**/*.test.ts"],
+    files: ["apps/web/**/*.test.ts"],
     languageOptions: {
       globals: globals.node,
     },

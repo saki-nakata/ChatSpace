@@ -60,15 +60,15 @@ jobs:
 
             ### ステップ3：レビュー実施
 
-            #### フロントエンド（React／TypeScript）の変更がある場合
+            #### フロントエンド（React／TypeScript、`apps/web`）の変更がある場合
             - [ ] 型が `any` で潰されていないか、`@ts-ignore`/`@ts-expect-error` で握り潰していないか
             - [ ] マークダウン描画箇所で `DOMPurify` を通さずに `dangerouslySetInnerHTML` を使っていないか
             - [ ] ユーザー入力・APIレスポンスをそのままHTMLとして描画していないか（XSS）
             - [ ] コンソールログがデバッグ用途で残っていないか
             - [ ] アクセシビリティの基本対応（キーボード操作、フォーカス管理、ラベル）ができているか
-            - [ ] WebSocket（Socket.IO / STOMP）の購読がコンポーネントの unmount 時に解除されているか（リーク防止）
+            - [ ] WebSocket（STOMP）の購読がコンポーネントの unmount 時に解除されているか（リーク防止）
 
-            #### バックエンド（Java／Spring Boot、`apps/api-java`）の変更がある場合
+            #### バックエンド（Java／Spring Boot、`apps/api`）の変更がある場合
             - [ ] Controller が Repository を直接呼んでいないか（層飛ばし禁止。ArchUnitテストでも自動検証されるが、目視でも確認する）
             - [ ] Service に `HttpServletRequest` 等のHTTP概念が持ち込まれていないか
             - [ ] JPA エンティティをそのままAPIレスポンス（Controllerの戻り値）として返していないか（DTO変換の有無）
