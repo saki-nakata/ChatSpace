@@ -1,5 +1,6 @@
 package com.chatspace.api.realtime;
 
+import com.chatspace.api.audit.AuditLogger;
 import com.chatspace.api.channel.ChannelAuthorizationService;
 import com.chatspace.api.dm.DmAuthorizationService;
 import com.chatspace.api.workspace.WorkspaceAuthorizationService;
@@ -25,14 +26,17 @@ public class StompChannelInterceptor implements ChannelInterceptor {
   private final ChannelAuthorizationService channelAuthorizationService;
   private final DmAuthorizationService dmAuthorizationService;
   private final WorkspaceAuthorizationService workspaceAuthorizationService;
+  private final AuditLogger auditLogger;
 
   public StompChannelInterceptor(
       ChannelAuthorizationService channelAuthorizationService,
       DmAuthorizationService dmAuthorizationService,
-      WorkspaceAuthorizationService workspaceAuthorizationService) {
+      WorkspaceAuthorizationService workspaceAuthorizationService,
+      AuditLogger auditLogger) {
     this.channelAuthorizationService = channelAuthorizationService;
     this.dmAuthorizationService = dmAuthorizationService;
     this.workspaceAuthorizationService = workspaceAuthorizationService;
+    this.auditLogger = auditLogger;
   }
 
   @Override
@@ -42,12 +46,23 @@ public class StompChannelInterceptor implements ChannelInterceptor {
     if (accessor == null || accessor.getCommand() == null) {
       return message;
     }
-    switch (accessor.getCommand()) {
-      case SUBSCRIBE -> authorizeSubscribe(accessor);
-      case SEND -> authorizeSend(accessor);
-      default -> {
-        // CONNECT/DISCONNECT/UNSUBSCRIBE/HEARTBEAT等はpermitAll(§8)
+    // 拒否は監査ログへ記録する(ログ運用設計書§2「STOMP SUBSCRIBE/SEND拒否」)。同一ユーザー・同一IPからの
+    // 頻発は権限探索の兆候になるため、運用側で頻度を追えるようにしておく(§5)
+    try {
+      switch (accessor.getCommand()) {
+        case SUBSCRIBE -> authorizeSubscribe(accessor);
+        case SEND -> authorizeSend(accessor);
+        default -> {
+          // CONNECT/DISCONNECT/UNSUBSCRIBE/HEARTBEAT等はpermitAll(§8)
+        }
       }
+    } catch (RuntimeException ex) {
+      auditLogger.stompDestinationDenied(
+          principalUserIdOrNull(accessor),
+          accessor.getCommand().name(),
+          accessor.getDestination(),
+          ex.getClass().getSimpleName());
+      throw ex;
     }
     return message;
   }
@@ -96,6 +111,19 @@ public class StompChannelInterceptor implements ChannelInterceptor {
       throw new MessagingException("許可されていない宛先です: " + destination);
     }
     requireAuthenticated(accessor.getUser());
+  }
+
+  /** 監査ログ用。未認証なら{@code null}(ここで例外を投げるとログ出力が本来の拒否理由を上書きしてしまう)。 */
+  private UUID principalUserIdOrNull(StompHeaderAccessor accessor) {
+    Principal principal = accessor.getUser();
+    if (principal == null) {
+      return null;
+    }
+    try {
+      return UUID.fromString(principal.getName());
+    } catch (IllegalArgumentException e) {
+      return null;
+    }
   }
 
   private void requireAuthenticated(Principal principal) {

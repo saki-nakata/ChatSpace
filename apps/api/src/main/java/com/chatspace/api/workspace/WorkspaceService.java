@@ -1,5 +1,6 @@
 package com.chatspace.api.workspace;
 
+import com.chatspace.api.audit.AuditableActionEvent;
 import com.chatspace.api.channel.ChannelMemberRepository;
 import com.chatspace.api.common.BadRequestException;
 import com.chatspace.api.common.ConflictException;
@@ -120,6 +121,9 @@ public class WorkspaceService {
         null,
         null,
         null);
+    eventPublisher.publishEvent(
+        AuditableActionEvent.ownerAction(
+            callerId, workspaceId, "WORKSPACE_INVITE", target.getId()));
   }
 
   @Transactional
@@ -137,6 +141,8 @@ public class WorkspaceService {
     // 強制切断はコミット後に実行する(MemberKickedEventListenerが@TransactionalEventListener(AFTER_COMMIT)で処理)
     eventPublisher.publishEvent(new MemberKickedEvent(targetUserId));
     realtimeEventPublisher.workspaceMemberKicked(workspaceId, Map.of("userId", targetUserId));
+    eventPublisher.publishEvent(
+        AuditableActionEvent.ownerAction(callerId, workspaceId, "WORKSPACE_KICK", targetUserId));
   }
 
   @Transactional

@@ -1,5 +1,6 @@
 package com.chatspace.api.channel;
 
+import com.chatspace.api.audit.AuditableActionEvent;
 import com.chatspace.api.common.ConflictException;
 import com.chatspace.api.common.NotFoundException;
 import com.chatspace.api.message.MessageRepository;
@@ -100,6 +101,8 @@ public class ChannelService {
     } else {
       realtimeEventPublisher.channelCreated(workspaceId, response);
     }
+    eventPublisher.publishEvent(
+        AuditableActionEvent.ownerAction(callerId, workspaceId, "CHANNEL_CREATE", channel.getId()));
     return response;
   }
 
@@ -198,6 +201,8 @@ public class ChannelService {
         null,
         null,
         null);
+    eventPublisher.publishEvent(
+        AuditableActionEvent.ownerAction(callerId, workspaceId, "CHANNEL_INVITE", target.getId()));
   }
 
   @Transactional(readOnly = true)
@@ -243,6 +248,12 @@ public class ChannelService {
         realtimeEventPublisher.channelMemberKicked(workspaceId, payload);
       }
     }
+    // 自主退出(callerId == targetUserId)はオーナー限定操作ではないため、監査上も明確に区別する
+    eventPublisher.publishEvent(
+        targetUserId.equals(callerId)
+            ? AuditableActionEvent.memberAction(callerId, workspaceId, "CHANNEL_LEAVE", channelId)
+            : AuditableActionEvent.ownerAction(
+                callerId, workspaceId, "CHANNEL_KICK", targetUserId));
   }
 
   @Transactional
@@ -268,5 +279,7 @@ public class ChannelService {
     } else {
       realtimeEventPublisher.channelDeleted(workspaceId, payload);
     }
+    eventPublisher.publishEvent(
+        AuditableActionEvent.ownerAction(callerId, workspaceId, "CHANNEL_DELETE", channelId));
   }
 }

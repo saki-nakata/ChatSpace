@@ -1,6 +1,7 @@
 package com.chatspace.api.support;
 
 import com.chatspace.api.auth.JwtService;
+import com.chatspace.api.auth.PasswordService;
 import com.chatspace.api.channel.Channel;
 import com.chatspace.api.channel.ChannelMember;
 import com.chatspace.api.channel.ChannelMemberRepository;
@@ -33,6 +34,7 @@ public class AuthorizationTestFixtures {
   private final ChannelRepository channelRepository;
   private final ChannelMemberRepository channelMemberRepository;
   private final JwtService jwtService;
+  private final PasswordService passwordService;
 
   public AuthorizationTestFixtures(
       UserRepository userRepository,
@@ -40,19 +42,32 @@ public class AuthorizationTestFixtures {
       WorkspaceMemberRepository workspaceMemberRepository,
       ChannelRepository channelRepository,
       ChannelMemberRepository channelMemberRepository,
-      JwtService jwtService) {
+      JwtService jwtService,
+      PasswordService passwordService) {
     this.userRepository = userRepository;
     this.workspaceRepository = workspaceRepository;
     this.workspaceMemberRepository = workspaceMemberRepository;
     this.channelRepository = channelRepository;
     this.channelMemberRepository = channelMemberRepository;
     this.jwtService = jwtService;
+    this.passwordService = passwordService;
   }
 
   public User createUser() {
     String suffix = UUID.randomUUID().toString().substring(0, 8);
     return userRepository.save(
         new User("user-" + suffix, "not-a-real-hash", "Test User " + suffix));
+  }
+
+  /**
+   * 実際にログインできるユーザーを作る(パスワードを本物のハッシュで保存する)。{@link #createUser()}は
+   * ハッシュがダミーのためログインに必ず失敗する点に注意。レート制限テスト等、ログイン成功を伴う ケースでのみ使う(bcryptのコストがかかるため既定の{@code
+   * createUser()}とは分けている)。
+   */
+  public User createUserWithPassword(String rawPassword) {
+    String suffix = UUID.randomUUID().toString().substring(0, 8);
+    return userRepository.save(
+        new User("user-" + suffix, passwordService.hash(rawPassword), "Test User " + suffix));
   }
 
   public Workspace createWorkspaceWithOwner(User owner) {
