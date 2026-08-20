@@ -1,8 +1,12 @@
 package com.chatspace.api.common;
 
+import com.chatspace.api.audit.AuditLogger;
+import com.chatspace.api.audit.CurrentUserProvider;
+import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
@@ -20,20 +24,44 @@ public class GlobalExceptionHandler {
   private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
   private final long maxAttachmentSizeBytes;
+  private final AuditLogger auditLogger;
+  private final CurrentUserProvider currentUserProvider;
 
   public GlobalExceptionHandler(
-      @Value("${chatspace.max-attachment-size-bytes}") long maxAttachmentSizeBytes) {
+      @Value("${chatspace.max-attachment-size-bytes}") long maxAttachmentSizeBytes,
+      AuditLogger auditLogger,
+      CurrentUserProvider currentUserProvider) {
     this.maxAttachmentSizeBytes = maxAttachmentSizeBytes;
+    this.auditLogger = auditLogger;
+    this.currentUserProvider = currentUserProvider;
   }
 
+  /**
+   * 404。本アプリでは「存在しない」だけでなく<b>認可による非可視化</b>(プライベートチャンネル・DMの
+   * 存在秘匿、confused-deputy対策)にも404を使うため、監査ログの対象に含める(ログ運用設計書§1.3)。
+   */
   @ExceptionHandler(NotFoundException.class)
-  public ResponseEntity<ErrorResponse> handleNotFound(NotFoundException ex) {
+  public ResponseEntity<ErrorResponse> handleNotFound(
+      NotFoundException ex, HttpServletRequest request) {
+    auditAuthorizationDenied(ex, request);
     return ResponseEntity.status(HttpStatus.NOT_FOUND).body(new ErrorResponse(ex.getMessage()));
   }
 
+  /** 403(オーナー限定操作の拒否等)。同じく監査ログの対象(ログ運用設計書§1.3)。 */
   @ExceptionHandler(ForbiddenException.class)
-  public ResponseEntity<ErrorResponse> handleForbidden(ForbiddenException ex) {
+  public ResponseEntity<ErrorResponse> handleForbidden(
+      ForbiddenException ex, HttpServletRequest request) {
+    auditAuthorizationDenied(ex, request);
     return ResponseEntity.status(HttpStatus.FORBIDDEN).body(new ErrorResponse(ex.getMessage()));
+  }
+
+  /** 例外メッセージは監査ログへ渡さない(リソース名など、拒否された相手に見せていない情報が ログ経由で残るのを避けるため。ログ運用設計書§1.4)。渡すのは例外クラス名のみ。 */
+  private void auditAuthorizationDenied(RuntimeException ex, HttpServletRequest request) {
+    auditLogger.authorizationDenied(
+        currentUserProvider.currentUserIdOrNull(),
+        request.getMethod(),
+        request.getRequestURI(),
+        ex.getClass().getSimpleName());
   }
 
   @ExceptionHandler(ConflictException.class)
@@ -71,6 +99,15 @@ public class GlobalExceptionHandler {
   private String maxAttachmentSizeMessage() {
     long maxMegabytes = maxAttachmentSizeBytes / (1024 * 1024);
     return "ファイルサイズは" + maxMegabytes + "MB以下にしてください。";
+  }
+
+  /** レート制限超過(認証機能定義書§7、フェーズ12)。{@code Retry-After}(秒)を添えて、クライアントが いつ再試行してよいかを機械的に判断できるようにする。 */
+  @ExceptionHandler(TooManyRequestsException.class)
+  public ResponseEntity<ErrorResponse> handleTooManyRequests(TooManyRequestsException ex) {
+    long retryAfterSeconds = Math.max(1, ex.getRetryAfter().toSeconds());
+    return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+        .header(HttpHeaders.RETRY_AFTER, String.valueOf(retryAfterSeconds))
+        .body(new ErrorResponse(ex.getMessage()));
   }
 
   @ExceptionHandler(AuthenticationCredentialsNotFoundException.class)

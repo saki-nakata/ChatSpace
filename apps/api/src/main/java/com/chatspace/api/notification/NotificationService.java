@@ -110,7 +110,8 @@ public class NotificationService {
                 threadParentId,
                 fromUserId,
                 text));
-    realtimeEventPublisher.notification(recipientUserId, NotificationResponse.from(notification));
+    realtimeEventPublisher.notification(
+        recipientUserId, type.name(), NotificationResponse.from(notification));
   }
 
   private String composeText(NotificationType type, User fromUser) {

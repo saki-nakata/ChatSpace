@@ -1,5 +1,6 @@
 package com.chatspace.api.realtime;
 
+import com.chatspace.api.audit.AuditLogger;
 import com.chatspace.api.auth.JwtService;
 import jakarta.servlet.http.Cookie;
 import java.util.Arrays;
@@ -28,9 +29,11 @@ public class WebSocketAuthInterceptor implements HandshakeInterceptor {
   private static final String COOKIE_NAME = "chatspace_token";
 
   private final JwtService jwtService;
+  private final AuditLogger auditLogger;
 
-  public WebSocketAuthInterceptor(JwtService jwtService) {
+  public WebSocketAuthInterceptor(JwtService jwtService, AuditLogger auditLogger) {
     this.jwtService = jwtService;
+    this.auditLogger = auditLogger;
   }
 
   @Override
@@ -39,8 +42,15 @@ public class WebSocketAuthInterceptor implements HandshakeInterceptor {
       ServerHttpResponse response,
       WebSocketHandler wsHandler,
       Map<String, Object> attributes) {
-    Optional<UUID> userId = extractToken(request).flatMap(jwtService::verify);
+    Optional<String> token = extractToken(request);
+    Optional<UUID> userId = token.flatMap(jwtService::verify);
     if (userId.isEmpty()) {
+      // 拒否理由は「Cookie欠如」と「JWT不正/期限切れ」を区別する(運用時に設定不備と攻撃を切り分けるため)。
+      // トークン本体は決してログに残さない(ログ運用設計書§1.4)
+      auditLogger.stompHandshakeRejected(
+          remoteAddress(request),
+          originHeader(request),
+          token.isEmpty() ? "missing_cookie" : "invalid_token");
       response.setStatusCode(HttpStatus.UNAUTHORIZED);
       return false;
     }
@@ -55,6 +65,17 @@ public class WebSocketAuthInterceptor implements HandshakeInterceptor {
       WebSocketHandler wsHandler,
       Exception exception) {
     // 何もしない
+  }
+
+  private String remoteAddress(ServerHttpRequest request) {
+    return request.getRemoteAddress() == null
+        ? "unknown"
+        : request.getRemoteAddress().getAddress().getHostAddress();
+  }
+
+  private String originHeader(ServerHttpRequest request) {
+    String origin = request.getHeaders().getOrigin();
+    return origin == null ? "unknown" : origin;
   }
 
   private Optional<String> extractToken(ServerHttpRequest request) {

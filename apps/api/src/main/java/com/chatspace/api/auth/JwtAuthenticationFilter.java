@@ -1,5 +1,6 @@
 package com.chatspace.api.auth;
 
+import com.chatspace.api.audit.RequestLoggingFilter;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.Cookie;
@@ -43,6 +44,10 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
               var authentication =
                   new UsernamePasswordAuthenticationToken(userId.toString(), null, List.of());
               SecurityContextHolder.getContext().setAuthentication(authentication);
+              // アクセスログ用にリクエスト属性へも残す。RequestLoggingFilterはSpring Securityの
+              // フィルタチェーンより外側で動くため、ログ出力時点ではSecurityContextが既にクリアされており
+              // SecurityContextHolderからは取得できない(レビュー指摘対応: userIdが常にnullになっていた)
+              request.setAttribute(RequestLoggingFilter.USER_ID_ATTRIBUTE, userId);
             });
     filterChain.doFilter(request, response);
   }

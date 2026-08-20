@@ -1,5 +1,6 @@
 package com.chatspace.api.realtime;
 
+import com.chatspace.api.audit.AuditLogger;
 import java.util.UUID;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Component;
@@ -19,8 +20,10 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 public class RealtimeEventPublisher {
 
   private final SimpMessagingTemplate messagingTemplate;
+  private final AuditLogger auditLogger;
 
-  public RealtimeEventPublisher(SimpMessagingTemplate messagingTemplate) {
+  public RealtimeEventPublisher(SimpMessagingTemplate messagingTemplate, AuditLogger auditLogger) {
+    this.auditLogger = auditLogger;
     this.messagingTemplate = messagingTemplate;
   }
 
@@ -73,9 +76,27 @@ public class RealtimeEventPublisher {
     sendToUser(targetUserId, "DM_THREAD_CREATED", payload);
   }
 
-  /** メンション・DM・招待・スレッド返信の各通知を本人の個人キューへ配信する(通知機能定義書§3.2)。 */
-  public void notification(UUID recipientUserId, Object payload) {
-    sendToUser(recipientUserId, "NOTIFICATION", payload);
+  /**
+   * メンション・DM・招待・スレッド返信の各通知を本人の個人キューへ配信する(通知機能定義書§3.2)。
+   *
+   * <p>配信はDBコミット後の副作用であり、ここで例外を投げても通知レコード自体は既に永続化されている。
+   * 呼び出し元の処理を巻き添えで失敗させないよう例外は握るが、握りつぶすと「通知が届かない」障害が 誰にも気付かれないため、監査ログへ必ず記録する(ログ運用設計書§2「通知配信失敗」)。
+   *
+   * @param notificationType 通知種別({@code NotificationType}の名前)。本文は渡さないこと
+   */
+  public void notification(UUID recipientUserId, String notificationType, Object payload) {
+    dispatch(
+        () -> {
+          try {
+            messagingTemplate.convertAndSendToUser(
+                recipientUserId.toString(),
+                StompDestinations.USER_EVENTS_DESTINATION,
+                new RealtimeEvent("NOTIFICATION", payload));
+          } catch (RuntimeException ex) {
+            auditLogger.notificationDeliveryFailed(
+                recipientUserId, notificationType, ex.getClass().getSimpleName());
+          }
+        });
   }
 
   public void channelMemberKicked(UUID workspaceId, Object payload) {

@@ -22,6 +22,28 @@ spring:
 
 server:
   port: ${PORT:8080}
+  # Render等のリバースプロキシ配下でクライアントの実IP・プロトコルを解決する。
+  # native = Tomcat の RemoteIpValve を使う。同バルブは「信頼済みプロキシ(既定で私有アドレス範囲)からの
+  # リクエストに限り」X-Forwarded-For を反映するため、外部から直接送られた偽装ヘッダは無視される
+  # (framework/ForwardedHeaderFilter は送信元を問わず反映してしまうため、レート制限の回避に使えてしまう)。
+  # プロキシを介さない構成では none を指定するとソケットの接続元アドレスがそのまま使われる。
+  forward-headers-strategy: ${FORWARD_HEADERS_STRATEGY:native}
+
+logging:
+  level:
+    root: ${LOG_LEVEL:INFO}
+    com.chatspace: ${LOG_LEVEL_APP:INFO}
+  structured:
+    format:
+      # 構造化ログ(JSON)出力(ログ運用設計書§1.1)。未設定なら人間可読な行形式で出る。
+      # 本番(Render)では LOG_STRUCTURED_FORMAT=logstash を設定し、Renderのログ検索で
+      # requestId・userId・auditEvent 等をフィールド単位で絞り込めるようにする(§4)。
+      console: ${LOG_STRUCTURED_FORMAT:}
+  pattern:
+    # 行形式のときも SLF4J の キー・バリュー(%kvp)と MDC の requestId を必ず出力する。
+    # 既定パターンは %kvp を含まないため、これが無いと行形式では auditEvent・userId・path 等が
+    # 一切表示されず、監査に必要な情報が失われる(レビュー指摘対応)。
+    console: "%clr(%d{${LOG_DATEFORMAT_PATTERN:yyyy-MM-dd'T'HH:mm:ss.SSSXXX}}){faint} %clr(${LOG_LEVEL_PATTERN:%5p}) %clr(${PID:- }){magenta} %clr(---){faint} %clr([%15.15t]){faint} %clr(%-40.40logger{39}){cyan} %clr(:){faint} %m %clr(%kvp){faint} %clr(requestId=%X{requestId:-}){faint}%n${LOG_EXCEPTION_CONVERSION_WORD:%wEx}"
 
 management:
   endpoints:
@@ -34,6 +56,13 @@ chatspace:
   jwt-secret: ${JWT_SECRET:}
   web-origin: ${WEB_ORIGIN:http://localhost:5173}
   upload-dir: ${UPLOAD_DIR:./uploads}
+  # 認証系のレート制限(認証機能定義書§7、フェーズ12)。同一「ユーザーID + クライアントIP」の連続失敗を数え、
+  # max-attempts 回に達したら block-duration の間 429 を返す。window 内に上限へ達しなければカウンタは
+  # リセットされる。単一インスタンス前提のインメモリ実装(インフラ構成書§1、フェーズ13で共有ストア化を検討)
+  auth-rate-limit:
+    max-attempts: ${AUTH_RATE_LIMIT_MAX_ATTEMPTS:5}
+    window: ${AUTH_RATE_LIMIT_WINDOW:15m}
+    block-duration: ${AUTH_RATE_LIMIT_BLOCK_DURATION:15m}
   # chatspace_token CookieのSecure属性。ローカル開発(http)ではfalse、本番(https)ではtrueにする(認証機能定義書§6)
   cookie-secure: ${COOKIE_SECURE:false}
   # 添付ファイルサイズ上限(25MB=26214400バイト)。spring.servlet.multipart.max-file-size と同じ値にすること

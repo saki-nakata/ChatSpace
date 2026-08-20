@@ -10,4 +10,10 @@ chatspace:
   # HS256は最低256bit(32バイト)の鍵長が必要(JwtService参照)
   jwt-secret: test-only-secret-must-be-at-least-32-bytes-long
   web-origin: http://localhost:5173
+  # LoginRateLimitIntegrationTest の MAX_ATTEMPTS と一致させること。
+  # ブロック時間はテスト中に自然解除されないよう十分長くとる(時間経過の検証は AuthRateLimiterTest 側で仮想時計を使う)
+  auth-rate-limit:
+    max-attempts: 5
+    window: 15m
+    block-duration: 15m
   upload-dir: ./build/test-uploads

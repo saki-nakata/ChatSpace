@@ -1,5 +1,6 @@
 package com.chatspace.api.upload;
 
+import com.chatspace.api.audit.AuditLogger;
 import com.chatspace.api.channel.ChannelAuthorizationService;
 import com.chatspace.api.common.BadRequestException;
 import com.chatspace.api.common.NotFoundException;
@@ -38,6 +39,7 @@ public class UploadService {
   private static final int SNIFF_HEADER_BYTES = 16;
 
   private final Path uploadDir;
+  private final AuditLogger auditLogger;
   private final long maxAttachmentSizeBytes;
   private final AttachmentRepository attachmentRepository;
   private final MessageRepository messageRepository;
@@ -52,7 +54,8 @@ public class UploadService {
       MessageRepository messageRepository,
       UserRepository userRepository,
       ChannelAuthorizationService channelAuthorizationService,
-      DmAuthorizationService dmAuthorizationService) {
+      DmAuthorizationService dmAuthorizationService,
+      AuditLogger auditLogger) {
     this.uploadDir = Path.of(uploadDir).toAbsolutePath().normalize();
     this.maxAttachmentSizeBytes = maxAttachmentSizeBytes;
     this.attachmentRepository = attachmentRepository;
@@ -65,6 +68,7 @@ public class UploadService {
     } catch (IOException e) {
       throw new UncheckedIOException(e);
     }
+    this.auditLogger = auditLogger;
   }
 
   /**
@@ -113,7 +117,15 @@ public class UploadService {
     }
     Attachment attachment =
         attachmentRepository.findByStorageKey(storageKey).orElseThrow(this::notFound);
-    authorizeServe(attachment, callerId);
+    try {
+      authorizeServe(attachment, callerId);
+    } catch (RuntimeException ex) {
+      // ログ運用設計書§2「添付ファイルのライブ権限再チェック拒否」。GlobalExceptionHandlerの汎用的な
+      // 認可拒否ログとは別に、storageKeyを独立したフィールドとして持つ専用イベントを残す
+      // (パスからの文字列抽出に頼らず検索できるようにするため)
+      auditLogger.attachmentAccessDenied(callerId, storageKey, ex.getClass().getSimpleName());
+      throw ex;
+    }
     return new UploadedFile(new FileSystemResource(target), attachment.getMimeType());
   }
 
