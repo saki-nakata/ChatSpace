@@ -129,6 +129,11 @@ jobs:
             - コード行に紐づく指摘は該当行へのインラインコメントで、全体の総評はトップレベルのコメントで投稿してください。
             - 指摘事項が一つもない場合は、その旨だけを簡潔にコメントしてください。
 
+          # --max-turns: 30ではPRの規模によっては足りず、レビューを投稿し終えた後に
+          # 「上限超過」でジョブだけが失敗扱いになる(PR #8で発生: 40ターン使用、is_error=false)。
+          # レビュー内容は正常に投稿されているのに赤くなるため上限を引き上げる。
+          # 注意: claude_args はリテラルブロックのため、この位置(キーの外)にコメントを書くこと。
+          # ブロック内に書くと "#..." がそのままCLI引数として渡ってしまう。
           claude_args: |
-            --max-turns 30
+            --max-turns 60
             --allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*)"
