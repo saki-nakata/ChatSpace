@@ -1,38 +1,110 @@
-## フェーズ14(任意) — パフォーマンステスト
+## フェーズ14 — Renderデプロイ本体
 
-**状態: 未着手・任意**
+**状態: ✅ 実装完了**(実機デプロイ・CD有効化は「Render初回セットアップ」節のDoDを参照)
 
-**フェーズ0-12の完了・機能同等性チェックリストの達成には不要**な学習発展フェーズ。機能同等性チェックリスト達成後の完了後フェーズとして実施できる。詳細は [`docs/テスト設計書.md`](../docs/テスト設計書.md) §8・[`docs/インフラ構成書.md`](../docs/インフラ構成書.md) を参照。
+Renderへのデプロイ方針確定(2026-08-22)に伴い新設したフェーズ。旧フェーズ14(パフォーマンステスト)は
+[phase15.md](phase15.md)として繰り下げた。**フェーズ13(添付ファイルのオブジェクトストレージ化)の完了が
+前提条件**(コードのマージだけでなく、R2実機疎通確認まで含めて完了していること。`phase13.md`のDoD参照)。
+R2移行前にCDを有効化すると、再デプロイのたびに添付ファイルが消える。
 
 ### 実装対象
 
-- [ ] k6によるシナリオベース負荷テストの導入(`performance/`ディレクトリ。TripDiaryの構成を踏襲)
-- [ ] シナリオ(1) メッセージ送信APIのスループット・レイテンシ計測
-- [ ] シナリオ(2) 検索API — `pg_trgm`使用時の3文字以上クエリ vs 2文字未満クエリでの性能差を計測(検索機能定義書§7の既知の制約を定量的に裏付ける)
-- [ ] シナリオ(3) STOMP WebSocket接続の同時接続数と、チャンネルへのメッセージ配信のファンアウト遅延
-- [ ] 実施環境: Render実インスタンス(フェーズ-2で確認したプラン)に対して実施し、ローカル環境との性能差(dev/prodパリティの検証を兼ねる)も記録する
+- [x] `.dockerignore`新設。`apps/web/.env`(`VITE_API_URL=http://localhost:8080`等をハードコード)が
+      ビルドコンテキストに混入しないよう除外
+- [x] マルチステージ`Dockerfile`新設(リポジトリルート): フロントエンドビルド(`node:22-slim`)→
+      バックエンドビルド(`eclipse-temurin:21-jdk`、フロント成果物を`apps/api/src/main/resources/static/`へ同梱)→
+      実行用(`eclipse-temurin:21-jre`)の3ステージ。フロントエンドビルド時は`VITE_API_URL=""`を明示設定し
+      同一オリジン相対パスにする(`apps/web/.env`が万一混入しても`??`判定を確実に上書きする多層防御)
+- [x] `apps/api/build.gradle.kts`の`bootJar`タスクに`archiveFileName.set("app.jar")`を追加(Dockerfileの
+      COPY元ファイル名を固定するため)
+- [x] `SpaFallbackController`新設: 実際のクライアント側ルート(`/login`・`/signup`・`/w/**`)のみを許可リストで
+      `index.html`へフォワード。`/assets/**`は一切マッピングせずSpring Bootの既定静的リソース配信に委ねる
+- [x] `SecurityConfig`の`permitAll`に`/`・`/index.html`・`/login`・`/signup`・`/assets/**`・`/w/**`を追加
+      (未認証でもSPAシェル自体は読み込める必要があるため。実際のAPIは引き続き認証必須)
+- [x] Swagger UI/OpenAPIの本番無効化(`springdoc.api-docs.enabled`/`springdoc.swagger-ui.enabled`を
+      `SWAGGER_ENABLED`環境変数で切り替え、既定は有効)
+- [x] `apps/web/src/realtime/stomp.ts`: `VITE_WS_URL`未設定時に`window.location`から`ws`/`wss`オリジンを
+      導出するフォールバックを追加(ローカル開発は`apps/web/.env`が明示設定するため無改修で動く)
+- [x] `.github/workflows/release-ci.yml`新設: `production`ブランチへのpush専用、pathsフィルタなし。
+      バックエンドビルド+テスト・フロントエンドtypecheck/lint/build・`docker build`・コンテナ起動スモークテスト
+      (`/health`・`/`・`/login`・`/workspaces`の応答確認)までを1本で行う(既存`backend-ci.yml`/`frontend-ci.yml`は
+      pathsフィルタを持つため、Dockerfile等のみの変更ではCIが起動せずRenderの「After CI Checks Pass」が
+      機能しない問題への対応)
 
-### 成果物
+### テスト
 
-- [ ] `docs/performance-test-results-YYYY-MM-DD.md`(実施日を付与、TripDiaryの命名規則を踏襲)にシナリオ・負荷条件・結果・ボトルネックの所見をまとめる
+- [x] `SpaStaticAccessTest`(統合テスト): 未認証で`/login`・`/signup`・`/w/{id}`が401にならないこと、
+      `/workspaces`・`/uploads/{key}`は引き続き401になること(既存の認可境界への回帰確認)
+- [x] `release-ci.yml`のスモークテストで、実際のDockerイメージに対して`/`・`/login`が200、
+      `/workspaces`(未認証)が401であることを確認
 
-### 対象外(本フェーズでは扱わない)
+### Render初回セットアップ・環境変数チェックリスト
 
-- 実施しない場合でも、プロジェクトとしての完成・機能同等性チェックリストの達成には影響しない
+現行`application.yml`は`DATABASE_URL_JDBC`・`DATABASE_USERNAME`・`DATABASE_PASSWORD`を要求するが、
+Renderが自動注入する`DATABASE_URL`(`postgresql://...`形式)とは非互換(変換コードは実装しない方針、
+`docs/インフラ構成書.md` §5参照)。**Render PostgreSQLダッシュボードの個別接続情報から手動で組み立てて
+個別環境変数として設定する**運用で対応する。
+
+Render Web Serviceへ初回設定するチェックリスト:
+
+- [ ] ビルド方式: Docker(リポジトリルートの`Dockerfile`)を選択
+- [ ] `DATABASE_URL_JDBC` / `DATABASE_USERNAME` / `DATABASE_PASSWORD`(手動組み立て)
+- [ ] `JWT_SECRET`(Renderのシークレット管理)
+- [ ] `WEB_ORIGIN=https://<実際のRenderサービスURL>`
+- [ ] `COOKIE_SECURE=true`
+- [ ] `STORAGE_TYPE=s3` + R2関連5項目(`STORAGE_S3_BUCKET`/`STORAGE_S3_ENDPOINT`/`STORAGE_S3_REGION`/
+      `STORAGE_S3_ACCESS_KEY_ID`/`STORAGE_S3_SECRET_ACCESS_KEY`。R2はバケット限定の最小権限トークンを発行して使う)
+- [ ] `SWAGGER_ENABLED=false`
+- [ ] `LOG_STRUCTURED_FORMAT=logstash`
+- [ ] Health Check Path: `/health`
+- [ ] 初回は手動デプロイでビルド所要時間を計測する(Gradle+pnpmの重いビルドがRender無料枠のビルド時間内に
+      収まるか確認。収まらない場合は別途対応を検討)
+
+### CDの有効化(R2移行完了が前提条件)
+
+上記の初回手動デプロイで動作確認できたら、GitHub Actions(`release-ci.yml`)によるCDを有効化する。
+
+1. Renderの Auto-Deploy を「After CI Checks Pass」・対象ブランチを`production`に設定する
+2. `main`→`production`へのPRマージが唯一のリリース経路とする(`production`への直接pushはしない)
+3. `release-ci.yml`が`production`ブランチへのpushで実際に起動し、スモークテストが通ることを確認する
+
+### リリース・ロールバック運用(軽量版)
+
+数日限定・単独運用の学校提出用デプロイという前提のため、タグ付きリリース/`hotfix/*`ブランチ/リバートPRと
+いった本格的なリリース運用は今回のスコープに含めない(必要になった場合は別途相談)。
+
+- **リリース**: `feature/*` → `main`(CIのみ)→ `production`へのPRをマージ、が唯一のリリース経路
+- **ロールバック**: Renderダッシュボードから直前の成功デプロイに戻す、または`production`ブランチで
+  問題のコミットをrevertしてpush
+
+### 撤収手順チェックリスト(スクール公開後)
+
+- [ ] Render Web Serviceを停止する
+- [ ] Render PostgreSQLを削除する(必要ならエクスポート後に)
+- [ ] R2バケットを空にしてから削除する
+- [ ] R2 APIトークンを失効させる
+- [ ] `production`ブランチへのpushを止める(CDの実質的な無効化として十分)
 
 ### 確認方法
 
 ```bash
-# k6インストール後
-k6 run performance/message-send.js
-k6 run performance/search.js
-k6 run performance/websocket-fanout.js
+# ローカルでのDockerビルド確認(このリポジトリの開発環境にDockerが必要)
+docker build -t chatspace:local .
+docker run -p 8080:8080 \
+  -e DATABASE_URL_JDBC="jdbc:postgresql://host.docker.internal:5432/chatspace" \
+  -e DATABASE_USERNAME=chatspace -e DATABASE_PASSWORD=chatspace \
+  -e JWT_SECRET="local-only-secret-must-be-at-least-32-bytes-long" \
+  chatspace:local
 ```
+
+ブラウザで `http://localhost:8080/` にアクセスしSPAが表示されること、`/assets/*.js`・`*.css`が
+`text/html`ではない正しい`Content-Type`で返っていること、未認証で`/login`が200で読み込めること、
+`/w/xxx`のような直接URLアクセスでも401にならずSPAシェルが返ること、`/uploads/存在しないkey`はJSON 404が
+返ること、`/swagger-ui.html`が404になること(`SWAGGER_ENABLED=false`時)を確認する。
 
 ## 関連ドキュメント
 
-- [`docs/テスト設計書.md`](../docs/テスト設計書.md) §8
 - [`docs/インフラ構成書.md`](../docs/インフラ構成書.md)
-- [`docs/機能定義書/検索機能定義書.md`](../docs/機能定義書/検索機能定義書.md)
-- [phase13.md](phase13.md)(前フェーズ、任意)
+- [phase13.md](phase13.md)(前フェーズ、添付ファイルのオブジェクトストレージ化。完了が前提条件)
+- [phase15.md](phase15.md)(次フェーズ、任意。パフォーマンステスト)
 - [README.md](README.md)(全体目次)

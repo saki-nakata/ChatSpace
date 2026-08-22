@@ -15,7 +15,8 @@ import org.springframework.web.socket.WebSocketSession;
  *
  * <p>{@code @TransactionalEventListener(phase = AFTER_COMMIT)}により、(a)トランザクションがロールバックした場合は
  * 発火しない、(b)コミット前の再接続でまだ有効なメンバーシップを参照されてしまう競合を避ける、の両方を保証する。
- * 単一インスタンス前提のため、プロセスが落ちればセッション自体も同時に消えるので、これだけで整合性が閉じる (複数インスタンス構成でのoutboxパターンはフェーズ13・任意)。
+ * 単一インスタンス前提のため、プロセスが落ちればセッション自体も同時に消えるので、これだけで整合性が閉じる
+ * (水平スケール対応は実施しないことが確定しており、outboxパターン等の追加対応は不要)。
  */
 @Component
 public class MemberKickedEventListener {

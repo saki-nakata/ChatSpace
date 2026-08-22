@@ -1,6 +1,6 @@
-# ローカル開発用。フェーズ0-12は単一インスタンス前提のためPostgreSQLのみを起動する。
-# 水平スケール対応(フェーズ13・任意)を実施する場合、Redis・RabbitMQ・共有アップロードボリュームを追記する
-# (詳細は .plans/java-spring-boot-redesign.md「水平スケール対応(フェーズ13・任意)」章、docs/インフラ構成書.md参照)。
+# ローカル開発用。単一インスタンス前提のためPostgreSQLのみを起動する。
+# 水平スケール対応は検討したが実施しないことが確定しているため、Redis・RabbitMQは追加しない
+# (詳細は docs/インフラ構成書.md参照)。
 services:
   postgres:
     image: postgres:16
