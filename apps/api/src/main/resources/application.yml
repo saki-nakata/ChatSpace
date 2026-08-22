@@ -56,6 +56,16 @@ chatspace:
   jwt-secret: ${JWT_SECRET:}
   web-origin: ${WEB_ORIGIN:http://localhost:5173}
   upload-dir: ${UPLOAD_DIR:./uploads}
+  # 添付ファイルの実体保存先(フェーズ13、インフラ構成書§7.1)。既定はローカルディスク(LocalDiskAttachmentStorage)。
+  # s3を指定するとCloudflare R2(S3互換API、S3AttachmentStorage)を使う。upload-dirはtype=localのときのみ参照される
+  storage:
+    type: ${STORAGE_TYPE:local}
+    s3:
+      bucket: ${STORAGE_S3_BUCKET:}
+      endpoint: ${STORAGE_S3_ENDPOINT:}
+      region: ${STORAGE_S3_REGION:auto}
+      access-key-id: ${STORAGE_S3_ACCESS_KEY_ID:}
+      secret-access-key: ${STORAGE_S3_SECRET_ACCESS_KEY:}
   # 認証系のレート制限(認証機能定義書§7、フェーズ12)。同一「ユーザーID + クライアントIP」の連続失敗を数え、
   # max-attempts 回に達したら block-duration の間 429 を返す。window 内に上限へ達しなければカウンタは
   # リセットされる。単一インスタンス前提のインメモリ実装(インフラ構成書§1、フェーズ13で共有ストア化を検討)

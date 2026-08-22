@@ -10,23 +10,18 @@ import com.chatspace.api.message.AttachmentRepository;
 import com.chatspace.api.message.Message;
 import com.chatspace.api.message.MessageRepository;
 import com.chatspace.api.user.UserRepository;
-import java.io.IOException;
-import java.io.UncheckedIOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.UUID;
 import java.util.regex.Pattern;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.core.io.FileSystemResource;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 /**
- * 添付ファイル機能定義書§3の業務ロジック。アップロード時はマジックバイト判定・保存先決定を、配信時はパストラバーサル対策と
- * ライブ権限再チェック(最重要)を担う。単一インスタンス前提のローカルディスク保存(計画書§6)。
+ * 添付ファイル機能定義書§3の業務ロジック。アップロード時はマジックバイト判定・保存先決定を、配信時は存在確認と ライブ権限再チェック(最重要)を担う。実体I/Oは{@link
+ * AttachmentStorage}(ローカルディスク/オブジェクトストレージ)に委譲する。
  */
 @Service
 public class UploadService {
@@ -38,7 +33,7 @@ public class UploadService {
   /** マジックバイト判定に必要な最大バイト数(WEBP判定に12バイト必要、余裕を見て16バイト読む)。 */
   private static final int SNIFF_HEADER_BYTES = 16;
 
-  private final Path uploadDir;
+  private final AttachmentStorage storage;
   private final AuditLogger auditLogger;
   private final long maxAttachmentSizeBytes;
   private final AttachmentRepository attachmentRepository;
@@ -48,7 +43,7 @@ public class UploadService {
   private final DmAuthorizationService dmAuthorizationService;
 
   public UploadService(
-      @Value("${chatspace.upload-dir}") String uploadDir,
+      AttachmentStorage storage,
       @Value("${chatspace.max-attachment-size-bytes}") long maxAttachmentSizeBytes,
       AttachmentRepository attachmentRepository,
       MessageRepository messageRepository,
@@ -56,18 +51,13 @@ public class UploadService {
       ChannelAuthorizationService channelAuthorizationService,
       DmAuthorizationService dmAuthorizationService,
       AuditLogger auditLogger) {
-    this.uploadDir = Path.of(uploadDir).toAbsolutePath().normalize();
+    this.storage = storage;
     this.maxAttachmentSizeBytes = maxAttachmentSizeBytes;
     this.attachmentRepository = attachmentRepository;
     this.messageRepository = messageRepository;
     this.userRepository = userRepository;
     this.channelAuthorizationService = channelAuthorizationService;
     this.dmAuthorizationService = dmAuthorizationService;
-    try {
-      Files.createDirectories(this.uploadDir);
-    } catch (IOException e) {
-      throw new UncheckedIOException(e);
-    }
     this.auditLogger = auditLogger;
   }
 
@@ -92,7 +82,8 @@ public class UploadService {
         MimeSniffer.detect(header).orElseThrow(() -> new BadRequestException("対応していないファイル形式です。"));
 
     String storageKey = UUID.randomUUID() + "." + detection.extension();
-    saveToDisk(content, storageKey);
+    storage.put(storageKey, content);
+    registerRollbackCleanup(storageKey);
 
     Attachment attachment =
         attachmentRepository.save(
@@ -111,8 +102,7 @@ public class UploadService {
     if (!STORAGE_KEY_PATTERN.matcher(storageKey).matches()) {
       throw notFound();
     }
-    Path target = uploadDir.resolve(storageKey).normalize();
-    if (!target.startsWith(uploadDir) || !Files.isRegularFile(target)) {
+    if (!storage.exists(storageKey)) {
       throw notFound();
     }
     Attachment attachment =
@@ -126,7 +116,9 @@ public class UploadService {
       auditLogger.attachmentAccessDenied(callerId, storageKey, ex.getClass().getSimpleName());
       throw ex;
     }
-    return new UploadedFile(new FileSystemResource(target), attachment.getMimeType());
+    // 本文取得(オブジェクトストレージ実装では実際の転送が発生する)はライブ権限再チェック成功後にのみ行う
+    // (認可拒否されるリクエストのたびに本文転送させないため、インフラ構成書§7.1)
+    return new UploadedFile(storage.load(storageKey), attachment.getMimeType());
   }
 
   /**
@@ -159,27 +151,17 @@ public class UploadService {
   }
 
   /**
-   * ディスクへの書き込みはDBトランザクションの外側の副作用であるため、トランザクションがロールバックされた場合に
-   * 孤児ファイルが残らないよう、コミット以外の完了(ロールバック)時に削除する後始末を登録する(レビュー指摘対応)。
+   * ストレージへの書き込みはDBトランザクションの外側の副作用であるため、トランザクションがロールバックされた場合に
+   * 孤児オブジェクトが残らないよう、コミット以外の完了(ロールバック)時に削除する後始末を登録する(レビュー指摘対応)。
    */
-  private void saveToDisk(byte[] content, String storageKey) {
-    Path target = uploadDir.resolve(storageKey);
-    try {
-      Files.write(target, content);
-    } catch (IOException e) {
-      throw new UncheckedIOException(e);
-    }
+  private void registerRollbackCleanup(String storageKey) {
     if (TransactionSynchronizationManager.isSynchronizationActive()) {
       TransactionSynchronizationManager.registerSynchronization(
           new TransactionSynchronization() {
             @Override
             public void afterCompletion(int status) {
               if (status != TransactionSynchronization.STATUS_COMMITTED) {
-                try {
-                  Files.deleteIfExists(target);
-                } catch (IOException ignored) {
-                  // ベストエフォート。孤児ファイルが残っても認可・DoSには影響しない(添付ファイル機能定義書§8)
-                }
+                storage.delete(storageKey);
               }
             }
           });
