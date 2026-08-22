@@ -485,36 +485,10 @@ DM側の `EXISTS` は「DM参加者か」だけでは不十分で、`workspace_m
 
 ---
 
-## 4. フェーズ13(任意)で追加するテーブル
+## 4. 関連ドキュメント
 
-以下は水平スケール対応(フェーズ13・任意学習発展フェーズ)を実施する場合にのみ追加する。フェーズ0-12の完了・機能同等性チェックリストの達成には不要。
-
-### 4.1 session_eviction_outbox テーブル
-
-キック時の強制切断を複数インスタンスにまたがって確実に配送するための outbox パターン用テーブル。単一インスタンス構成(フェーズ0-12)では、キック確定後の `SessionRegistry` 直接呼び出し(`@TransactionalEventListener(phase = AFTER_COMMIT)`)のみで完結するため、本テーブルは不要。
-
-| カラム名 | 型 | NULL | デフォルト | 説明 |
-|---------|-----|------|-----------|------|
-| id | UUID | NOT NULL | アプリ側生成 | outboxレコードID |
-| user_id | UUID | NOT NULL | - | 強制切断対象のユーザーID |
-| workspace_id | UUID | NOT NULL | - | 対象ワークスペースID |
-| channel_id | UUID | NULL | - | 対象チャンネルID(チャンネルキックの場合。ワークスペースキックの場合はnull) |
-| created_at | TIMESTAMPTZ | NOT NULL | now() | キック処理と同一トランザクションでのINSERT日時 |
-| dispatched_at | TIMESTAMPTZ | NULL | - | Redis Pub/Sub への配送完了日時(未配送はnull) |
-
-**制約**
-- 主キー: `id`
-
-**インデックス**
-| インデックス名 | カラム | 目的 |
-|-------------|-------|------|
-| session_eviction_outbox_pending_idx | (dispatched_at) WHERE dispatched_at IS NULL | `@Scheduled` ディスパッチャによる未配送レコードの `SELECT ... FOR UPDATE SKIP LOCKED` 取得(複数インスタンスが同一行を同時処理しないようロック付き) |
-
-**設計上の注意点**: `WorkspaceMember`/`ChannelMember` 削除と**同一DBトランザクション内**で本テーブルへ1行INSERTする(一次防御)。加えて、各インスタンスが定期(例: 30秒間隔)にローカルセッションのメンバーシップを再検証するバックグラウンドジョブ(二次防御)を併用する。詳細は `docs/インフラ構成書.md` の水平スケール対応節を参照。
-
----
-
-## 5. 関連ドキュメント
+水平スケール対応(RabbitMQ外部ブローカーリレー・Redis共有プレゼンス・キック通知配送のoutbox化)は検討の結果
+実施しないことが確定したため、旧「フェーズ13で追加するテーブル」節(`session_eviction_outbox`)は削除した。
 
 | ドキュメント名 | ファイル |
 |--------------|---------|

@@ -14,8 +14,8 @@ import org.springframework.stereotype.Service;
 /**
  * プレゼンス(オンライン/オフライン)管理(リアルタイム通信機能定義書§11)。
  *
- * <p>フェーズ0-12は単一インスタンス前提のため、接続数を{@code Map<UUID, Integer>}でローカル追跡する(複数タブ/デバイス対応)。
- * 最初の接続でオンラインに遷移し、全接続が切れた時点でオフラインに遷移する。フェーズ13(任意)でRedis共有プレゼンスへの 切替を検討できる。
+ * <p>単一インスタンス前提のため、接続数を{@code Map<UUID, Integer>}でローカル追跡する(複数タブ/デバイス対応)。
+ * 最初の接続でオンラインに遷移し、全接続が切れた時点でオフラインに遷移する。水平スケール対応(Redis共有プレゼンスへの 切替)は検討の結果実施しないことが確定している。
  *
  * <p>{@code SimpMessagingTemplate}は{@code @Lazy}で注入する: 本クラスは{@code
  * RealtimeWebSocketHandlerDecoratorFactory}経由で{@code WebSocketConfig}({@code

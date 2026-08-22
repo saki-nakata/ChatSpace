@@ -1,0 +1,20 @@
+# Renderへのデプロイ用Dockerイメージのビルドコンテキストから除外する(実装計画書/phase14.md参照)。
+# 特に apps/web/.env は VITE_API_URL=http://localhost:8080 等をハードコードしているため、
+# これがビルドに混入すると本番バンドルにlocalhostが焼き込まれる。Dockerfile側でも
+# VITE_API_URL/VITE_WS_URLを明示的に上書きするが、そもそもコンテキストから除外して多層防御する。
+.git
+.env
+.env.*
+apps/web/.env
+apps/web/.env.*
+
+node_modules
+**/node_modules
+**/dist
+**/build
+apps/api/uploads
+
+delete
+.gradle
+.claude
+*.png

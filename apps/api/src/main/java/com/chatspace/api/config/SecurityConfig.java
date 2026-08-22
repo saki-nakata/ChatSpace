@@ -25,6 +25,12 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
  * Cookie/JWTを検証する専用の認証経路を持つ(リアルタイム通信機能定義書§5)。REST層の認証と二重の判定ロジックを
  * 持たせないよう、ここではpermitAllとしWebSocketAuthInterceptorに認証判断を一本化する。
  *
+ * <p><b>SPAシェルの配信(フェーズ14、Render同梱配信化)</b>: {@code /}・{@code /index.html}・{@code /login}・{@code
+ * /signup}・{@code /assets/**}・{@code /w/**}もpermitAllに加える。これはHTML/JSシェルの配信を許可するだけで、
+ * シェルが叩く実際のAPI({@code /workspaces/**}等)は引き続き認証必須のまま(未認証は401、SPA側は{@code
+ * RequireAuth}コンポーネントでログイン画面へ誘導)。これが無いと未認証ユーザーが{@code /}や{@code /login}に
+ * アクセスしただけで401になりSPA自体が読み込めなくなる({@code SpaFallbackController}参照)。
+ *
  * <p><b>CORS(レビュー指摘対応)</b>: 従来{@code chatspace.web-origin}はWebSocketハンドシェイクの Origin検証({@code
  * WebSocketConfig}の{@code setAllowedOriginPatterns})にのみ使われ、REST側には {@code
  * CorsConfigurationSource}が存在しなかった。フロントエンド(`apps/web-next`)を別オリジンで起動した瞬間に
@@ -60,7 +66,13 @@ public class SecurityConfig {
                         "/ws/**",
                         "/v3/api-docs/**",
                         "/swagger-ui/**",
-                        "/swagger-ui.html")
+                        "/swagger-ui.html",
+                        "/",
+                        "/index.html",
+                        "/login",
+                        "/signup",
+                        "/assets/**",
+                        "/w/**")
                     .permitAll()
                     .anyRequest()
                     .authenticated())

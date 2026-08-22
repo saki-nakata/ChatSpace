@@ -1,3 +1,5 @@
+import org.springframework.boot.gradle.tasks.bundling.BootJar
+
 plugins {
     java
     id("org.springframework.boot") version "4.1.0"
@@ -64,6 +66,12 @@ dependencies {
 
 tasks.withType<Test> {
     useJUnitPlatform()
+}
+
+// Dockerfile(実装計画書/phase14.md)でCOPY元のファイル名を固定するため、既定の
+// `api-0.0.1-SNAPSHOT.jar`(+`-plain.jar`)ではなく `app.jar` に固定する
+tasks.named<BootJar>("bootJar") {
+    archiveFileName.set("app.jar")
 }
 
 // OpenApiDocsGenerationTestは openapi.json への書き込みという副作用を持つため、通常の `test`/`build` では実行しない

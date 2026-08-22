@@ -1,0 +1,137 @@
+name: Release CI (production deploy gate)
+
+# backend-ci.yml・frontend-ci.yml は paths フィルタを持つため、Dockerfile・.dockerignore・
+# ドキュメントのみの変更や Render デプロイ関連の設定変更では起動しない。Render の
+# 「After CI Checks Pass」はコミットにチェックが存在しない場合デプロイされないため、
+# production ブランチへの push には必ず何らかのチェックが起動する状態が必要
+# (実装計画書/phase14.md参照)。このワークフローは paths フィルタなしで、バックエンド・
+# フロントエンドのビルド・テストに加え、実際にDockerイメージをビルドしてコンテナを起動する
+# スモークテストまで行う、production 向けの唯一かつ包括的なゲート。
+
+on:
+  push:
+    branches: [production]
+
+concurrency:
+  # デプロイゲートなので、進行中のリリースチェックを新しいpushで取り消さない
+  group: release-ci-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-smoke-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: chatspace
+          POSTGRES_USER: chatspace
+          POSTGRES_PASSWORD: chatspace
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U chatspace -d chatspace"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Cache Gradle dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('apps/api/**/*.gradle*', 'apps/api/gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: |
+            gradle-${{ runner.os }}-
+
+      - name: Backend build (Spotless + ArchUnit + test + jar)
+        working-directory: apps/api
+        run: ./gradlew build --console=plain
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: "pnpm"
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Frontend type check
+        run: pnpm --filter @chatspace/web run typecheck
+
+      - name: Frontend lint (warnings not allowed)
+        run: pnpm --filter @chatspace/web run lint
+
+      - name: Frontend build
+        run: pnpm --filter @chatspace/web run build
+
+      - name: Docker build
+        run: docker build -t chatspace:ci .
+
+      - name: Start container
+        # --network host: services.postgres は runner の localhost に公開されるため、
+        # アプリコンテナも host ネットワークに乗せて localhost:5432 で到達できるようにする(Linux runner限定)
+        run: |
+          docker run -d --name chatspace-ci --network host \
+            -e DATABASE_URL_JDBC="jdbc:postgresql://localhost:5432/chatspace" \
+            -e DATABASE_USERNAME=chatspace \
+            -e DATABASE_PASSWORD=chatspace \
+            -e JWT_SECRET="ci-only-dummy-secret-must-be-at-least-32-bytes-long" \
+            -e WEB_ORIGIN="http://localhost:8080" \
+            -e COOKIE_SECURE=false \
+            chatspace:ci
+
+      - name: Wait for /health
+        run: |
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:8080/health > /dev/null; then
+              echo "/health is up"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "::error::/health did not become ready in time"
+          docker logs chatspace-ci
+          exit 1
+
+      - name: Smoke test (SPA配信・SecurityConfigのpermitAll回帰確認)
+        run: |
+          set -e
+          status_root=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/)
+          status_login=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/login)
+          status_workspaces=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/workspaces)
+
+          echo "GET / -> $status_root"
+          echo "GET /login -> $status_login"
+          echo "GET /workspaces (unauthenticated) -> $status_workspaces"
+
+          test "$status_root" = "200"
+          test "$status_login" = "200"
+          test "$status_workspaces" = "401"
+
+      - name: Show container logs on failure
+        if: failure()
+        run: docker logs chatspace-ci
+
+      - name: Stop container
+        if: always()
+        run: docker rm -f chatspace-ci || true

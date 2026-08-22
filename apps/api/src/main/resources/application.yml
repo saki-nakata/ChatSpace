@@ -52,6 +52,14 @@ management:
       exposure:
         include: health
 
+springdoc:
+  # Swagger UI/OpenAPIの公開切り替え(フェーズ14)。本番(Render)ではエンドポイント形状の偵察を避けるため
+  # SWAGGER_ENABLED=false を設定して無効化する。未設定ならローカル開発と同じ既定の有効状態のまま
+  api-docs:
+    enabled: ${SWAGGER_ENABLED:true}
+  swagger-ui:
+    enabled: ${SWAGGER_ENABLED:true}
+
 chatspace:
   jwt-secret: ${JWT_SECRET:}
   web-origin: ${WEB_ORIGIN:http://localhost:5173}
@@ -68,7 +76,7 @@ chatspace:
       secret-access-key: ${STORAGE_S3_SECRET_ACCESS_KEY:}
   # 認証系のレート制限(認証機能定義書§7、フェーズ12)。同一「ユーザーID + クライアントIP」の連続失敗を数え、
   # max-attempts 回に達したら block-duration の間 429 を返す。window 内に上限へ達しなければカウンタは
-  # リセットされる。単一インスタンス前提のインメモリ実装(インフラ構成書§1、フェーズ13で共有ストア化を検討)
+  # リセットされる。単一インスタンス前提のインメモリ実装(インフラ構成書§1。水平スケール対応は実施しないことが確定しており、共有ストア化は行わない)
   auth-rate-limit:
     max-attempts: ${AUTH_RATE_LIMIT_MAX_ATTEMPTS:5}
     window: ${AUTH_RATE_LIMIT_WINDOW:15m}

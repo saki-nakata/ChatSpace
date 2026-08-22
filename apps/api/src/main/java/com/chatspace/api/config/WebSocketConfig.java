@@ -20,8 +20,9 @@ import org.springframework.web.socket.config.annotation.WebSocketTransportRegist
 /**
  * STOMP over WebSocket基盤の設定(リアルタイム通信機能定義書§3)。
  *
- * <p>{@code /ws}エンドポイント(SockJSフォールバックなし)、Spring標準シンプルブローカー(フェーズ0-12は単一インスタンス前提、
- * RabbitMQ外部ブローカーリレーはフェーズ13・任意)、ハンドシェイク時JWT検証、SUBSCRIBE/SEND認可、キック時強制切断用の セッション追跡を配線する。
+ * <p>{@code /ws}エンドポイント(SockJSフォールバックなし)、Spring標準シンプルブローカー(単一インスタンス前提。
+ * RabbitMQ外部ブローカーリレーへの切替は水平スケール対応を実施しないことが確定しているため行わない)、 ハンドシェイク時JWT検証、SUBSCRIBE/SEND認可、キック時強制切断用の
+ * セッション追跡を配線する。
  */
 @Configuration
 @EnableWebSocketMessageBroker
