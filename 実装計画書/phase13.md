@@ -1,52 +1,67 @@
-## フェーズ13(任意) — 水平スケール対応
+## フェーズ13 — 添付ファイルのオブジェクトストレージ化(Cloudflare R2)
 
-**状態: 未着手・任意**
+**状態: ✅ 実装完了**(実機でのR2疎通確認は「確認方法」のDoDを参照)
 
-**フェーズ0-12の完了・機能同等性チェックリストの達成には不要**な学習発展フェーズ。CLAUDE.mdの既知制約(プレゼンス管理が単一プロセス前提)を本格的に解消したい場合、または分散システムの構成を学習目的で経験したい場合にのみ実施する。詳細は [`docs/インフラ構成書.md`](../docs/インフラ構成書.md)(水平スケール対応の章)を正とする。
+Renderへのデプロイ方針確定(2026-08-22)に伴い新設したフェーズ。旧フェーズ13(水平スケール対応・RabbitMQ/Redis)は
+実施しないことが確定したため、本フェーズの内容に差し替えた(旧内容は削除。Renderが1インスタンス運用でマネージド
+RabbitMQも無く、本番で動かす先が無いことが理由)。
 
-### 着手前に決めること
-
-- [ ] Render実機で行うか、ローカルdocker-composeでの検証に留めるか(Render上で実施する場合、ディスクと複数インスタンスが排他のため添付ファイルはオブジェクトストレージ化が必須になる)
+Render の Web Service(無料枠)には永続ディスクをアタッチできず、再デプロイ(コミット・再起動)のたびに
+添付ファイルが失われる。これを解消するため、添付ファイルの保存先をローカルディスクと Cloudflare R2(S3互換
+オブジェクトストレージ)で切り替え可能にする。詳細な設計判断は [`docs/インフラ構成書.md`](../docs/インフラ構成書.md)
+§7.1を正とする。
 
 ### 実装対象
 
-- [ ] STOMPブローカーを Spring シンプルブローカーから **RabbitMQ 外部ブローカーリレー** へ切替
-- [ ] プレゼンス管理をローカル`Map`から **Redis 共有プレゼンス** へ切替
-- [ ] `session_eviction_outbox`テーブルのFlywayマイグレーション追加(DB設計書§4参照)
-- [ ] キック処理のトランザクション内で`WorkspaceMember`/`ChannelMember`削除と同一トランザクションで`session_eviction_outbox`へ1行INSERT(一次防御)
-- [ ] `@Scheduled`ディスパッチャ: `SELECT ... FOR UPDATE SKIP LOCKED`で未配送レコードを取得し、Redis Pub/Sub `session-evict`チャネルへ発行
-- [ ] 各インスタンスでの定期整合性チェック(例: 30秒間隔、二次防御)
-- [ ] `/user/queue/events`の複数インスタンス配送: **`userDestinationBroadcast`/`userRegistryBroadcast`の要否は本計画書の時点では確定させず、フェーズ13着手時に実際のSTOMPフレームを観測しながら再検証する**(過去のレビューで、事前の断定が不正確だった反省を踏まえた方針)
-- [ ] RabbitMQユーザーキューの`x-expires`/`auto-delete`/`exclusive`設定: SUBSCRIBEフレームヘッダ経由での付与が必要。**実装着手前にRabbitMQ STOMPプラグインの公式ドキュメントで正確な仕様を裏取りすること**
-- [ ] ブローカーリレーの認証・TLS(アプリ⇔RabbitMQ間の専用資格情報、本番はTLS必須)
-- [ ] ハートビート・再接続設定(リレー⇔RabbitMQ間、クライアント側`heartbeatIncoming`/`heartbeatOutgoing`/`reconnectDelay`)
-- [ ] 添付ファイルの共有ボリューム化(ローカルdocker-composeでは名前付きボリューム、Render上ではオブジェクトストレージ化)
+- [x] `AttachmentStorage`インターフェース新設(`put`/`exists`/`load`/`delete`)
+- [x] `LocalDiskAttachmentStorage`(既定実装、`chatspace.storage.type=local`)。既存の `UploadService` にあった
+      パストラバーサル対策(パス正規化+`uploadDir`配下チェック)をそのまま移設
+- [x] `S3AttachmentStorage`(`chatspace.storage.type=s3`)。AWS SDK v2の`S3Client`でCloudflare R2に接続
+- [x] `S3StorageProperties`(`@ConfigurationProperties` + Bean Validation。`type=s3`なのに未設定なら起動時に失敗)
+- [x] `S3StorageConfig`(`S3Client`Bean。path-styleアドレッシング・`chunkedEncodingEnabled(false)`をR2向けに設定)
+- [x] `UploadService`を`AttachmentStorage`経由に書き換え。**`serve()`の認可ロジック(`authorizeServe`呼び出し・
+      拒否時の監査ログ)は無変更**。「存在確認」(`exists()`)と「本文取得」(`load()`)を分離し、本文取得は
+      ライブ権限再チェックに成功した後にのみ行う(レビュー指摘対応: 認可拒否されるリクエストのたびにR2へ
+      本文転送させないため)
+- [x] ロールバック時の孤児削除(`saveToDisk`内の`Files.deleteIfExists`)を`AttachmentStorage.delete()`経由に置き換え
+- [x] `build.gradle.kts`に`software.amazon.awssdk:s3`を追加
+- [x] `application.yml`に`chatspace.storage.*`設定キーを追加、`.env.sample`に`STORAGE_TYPE`系を追加
 
-### 検証(2インスタンスsmoke test)
+### テスト
 
-`docs/テスト設計書.md` §7 のテストID。
+- [x] 既存`UploadAuthorizationTest`(認可クリティカルテスト、AUTH-N07・AUTH-N25等)を無改修のまま実行し、
+      回帰が無いことを確認(`chatspace.storage.type`未設定→既定`local`)
+- [x] `S3AttachmentStorageTest`(単体、Mockito): put/load/deleteのリクエスト組み立て、`exists()`が
+      `NoSuchKeyException`/404で`false`を返すことを検証
+- [x] `UploadServiceOrderingTest`(単体、Mockito): ライブ権限再チェック失敗時に`storage.load()`が
+      一度も呼ばれないことを検証(DoS再発防止のリグレッションテスト)
 
-- [ ] SCALE-01: メッセージ・プレゼンスが両インスタンスにまたがって伝播すること
-- [ ] SCALE-02: 個人通知が別インスタンス発生イベントからでも`/user/queue/events`経由で届くこと
-- [ ] SCALE-03: RabbitMQ管理UIで切断後にユーザーキューが実際に消滅すること
-- [ ] SCALE-04: 別インスタンス経由のキック実行で、セッション強制切断・再購読拒否・新規メッセージ非受信の3条件すべてが成立すること
-- [ ] SCALE-05: Redis一時停止状態でのキックでも、outbox経由または定期整合性チェックにより最終的に強制切断が成立すること
-- [ ] SCALE-06: インスタンスAへアップロードした添付ファイルをインスタンスB経由で取得できること
+### R2移行完了の定義(Renderデプロイ本体・CD有効化の前提条件)
+
+コードのマージだけでは「移行完了」とみなさない。以下を実機で確認してから初めてRenderデプロイ本体
+(`feature/render-deploy`、CD有効化を含む。実装計画書のフェーズ番号は着手時に確定させる。現行の
+`phase14.md`は本PR時点ではまだパフォーマンステストの内容のままで、差し替えは次のタスクで行う)に着手する。
+
+- [ ] 実際のR2バケットに対して、アプリ経由でアップロード→取得→削除が成功すること
+- [ ] Render上でアプリを起動し、`STORAGE_TYPE=s3`設定で添付ファイルが正しく保存・取得できること
+- [ ] 一度Renderで再デプロイ(再起動)した後も、以前アップロードした添付ファイルが取得できること
+      (ローカルディスクではなくR2が実際にソースオブトゥルースになっていることの確認)
 
 ### 確認方法
 
 ```bash
-# docker-compose.yml に Redis・RabbitMQ・共有ボリュームを追記した上で
-docker compose up -d
 cd apps/api
-./gradlew build   # Testcontainers に Redis/RabbitMQ を追加
-# 2インスタンス起動して SCALE-01〜06 を手動/自動で確認
+./gradlew build   # Spotless + ArchUnit + 既存UploadAuthorizationTest + 新規S3AttachmentStorageTest・UploadServiceOrderingTest
 ```
+
+上記コマンドはローカル実行時 `chatspace.storage.type` 未設定のため R2 に接続せず、既定の
+`LocalDiskAttachmentStorage` で完結する。R2実機確認は上記DoDを参照。
 
 ## 関連ドキュメント
 
-- [`docs/インフラ構成書.md`](../docs/インフラ構成書.md)
-- [`docs/DB設計書.md`](../docs/DB設計書.md) §4
-- [`docs/テスト設計書.md`](../docs/テスト設計書.md) §7
-- [phase4.md](phase4.md)(単一インスタンス設計、対比元)
-- [phase14.md](phase14.md)(次フェーズ、任意)
+- [`docs/インフラ構成書.md`](../docs/インフラ構成書.md) §7.1
+- [`docs/機能定義書/添付ファイル機能定義書.md`](../docs/機能定義書/添付ファイル機能定義書.md)
+- [phase7.md](phase7.md)(添付ファイル機能の初期実装)
+- Renderデプロイ本体(次のタスク、`feature/render-deploy`ブランチ。フェーズ13完了が前提条件。着手時に
+  実装計画書のフェーズ番号を確定させる。現行の[phase14.md](phase14.md)は本PR時点ではまだパフォーマンス
+  テストの内容のまま)
