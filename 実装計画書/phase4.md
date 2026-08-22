@@ -74,7 +74,7 @@ STOMP認可の詳細検証(SUBSCRIBE認可・SEND default-deny・キック強制
 - AUTH-N12(キックロールバック時に強制切断が発生しないこと)・AUTH-N13(キック直後の再接続で再購読不可)・AUTH-N24(DMトピック再購読拒否)・AUTH-N29(他人の個人キュー購読不可)は、STOMPクライアントでの網羅的な自動テストとしては実装せず、設計・実装レベルでの担保(`AFTER_COMMIT`イベントリスナー、`DmAuthorizationService`のライブ再検証、`UserDestinationResolver`によるPrincipal書き換え)に留めた。将来的な回帰防止のため、フェーズ8前後で追加を検討する
 - AUTH-N17(STOMPペイロード不正値の明示的なエラーフレーム返却)は`@DestinationVariable UUID`の自動型変換による拒否に委ねており、専用のエラーハンドリング・テストは未実装
 - AUTH-N18(STOMP宛先契約テスト)はフェーズ8で対応(既定通り)
-- RabbitMQ外部ブローカーリレー・Redis共有プレゼンス(フェーズ13・任意)
+- RabbitMQ外部ブローカーリレー・Redis共有プレゼンス(水平スケール対応。検討したが実施しないことが確定)
 
 > **2026-08-16追記**: フェーズ1〜8完了時点のレビューで、リアルタイム配信がDBコミット前に発生する不整合(中程度)と、プライベートチャンネルのSTOMP漏洩(重大、`RealtimeEventPublisher`拡張で対応)の指摘があった。詳細は[review-fixes-2026-08-16.md](review-fixes-2026-08-16.md)を参照。
 
