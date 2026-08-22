@@ -15,9 +15,11 @@ import java.util.UUID;
 import java.util.regex.Pattern;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * 添付ファイル機能定義書§3の業務ロジック。アップロード時はマジックバイト判定・保存先決定を、配信時は存在確認と ライブ権限再チェック(最重要)を担う。実体I/Oは{@link
@@ -41,6 +43,7 @@ public class UploadService {
   private final UserRepository userRepository;
   private final ChannelAuthorizationService channelAuthorizationService;
   private final DmAuthorizationService dmAuthorizationService;
+  private final TransactionTemplate readOnlyTransactionTemplate;
 
   public UploadService(
       AttachmentStorage storage,
@@ -50,7 +53,8 @@ public class UploadService {
       UserRepository userRepository,
       ChannelAuthorizationService channelAuthorizationService,
       DmAuthorizationService dmAuthorizationService,
-      AuditLogger auditLogger) {
+      AuditLogger auditLogger,
+      PlatformTransactionManager transactionManager) {
     this.storage = storage;
     this.maxAttachmentSizeBytes = maxAttachmentSizeBytes;
     this.attachmentRepository = attachmentRepository;
@@ -59,6 +63,8 @@ public class UploadService {
     this.channelAuthorizationService = channelAuthorizationService;
     this.dmAuthorizationService = dmAuthorizationService;
     this.auditLogger = auditLogger;
+    this.readOnlyTransactionTemplate = new TransactionTemplate(transactionManager);
+    this.readOnlyTransactionTemplate.setReadOnly(true);
   }
 
   /**
@@ -97,7 +103,12 @@ public class UploadService {
     return AttachmentResponse.from(attachment);
   }
 
-  @Transactional(readOnly = true)
+  /**
+   * オブジェクトストレージ実装(R2)への{@code exists()}/{@code load()}呼び出しはネットワークI/Oであり、DBトランザクション内で
+   * 実行するとR2応答遅延時にDBコネクションプールがTomcatスレッドプールより先に枯渇しうる(レビュー指摘対応)。そのため
+   * DBアクセスが必要な区間(添付ファイル検索・ライブ権限再チェック)だけを{@link #readOnlyTransactionTemplate}で 明示的に区切り、{@code
+   * exists()}/{@code load()}はトランザクションの外側で呼び出す。
+   */
   public UploadedFile serve(String storageKey, UUID callerId) {
     if (!STORAGE_KEY_PATTERN.matcher(storageKey).matches()) {
       throw notFound();
@@ -105,6 +116,14 @@ public class UploadService {
     if (!storage.exists(storageKey)) {
       throw notFound();
     }
+    Attachment attachment =
+        readOnlyTransactionTemplate.execute(status -> findAndAuthorize(storageKey, callerId));
+    // 本文取得(オブジェクトストレージ実装では実際の転送が発生する)はライブ権限再チェック成功後にのみ行う
+    // (認可拒否されるリクエストのたびに本文転送させないため、インフラ構成書§7.1)
+    return new UploadedFile(storage.load(storageKey), attachment.getMimeType());
+  }
+
+  private Attachment findAndAuthorize(String storageKey, UUID callerId) {
     Attachment attachment =
         attachmentRepository.findByStorageKey(storageKey).orElseThrow(this::notFound);
     try {
@@ -116,9 +135,7 @@ public class UploadService {
       auditLogger.attachmentAccessDenied(callerId, storageKey, ex.getClass().getSimpleName());
       throw ex;
     }
-    // 本文取得(オブジェクトストレージ実装では実際の転送が発生する)はライブ権限再チェック成功後にのみ行う
-    // (認可拒否されるリクエストのたびに本文転送させないため、インフラ構成書§7.1)
-    return new UploadedFile(storage.load(storageKey), attachment.getMimeType());
+    return attachment;
   }
 
   /**

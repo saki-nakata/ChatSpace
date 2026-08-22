@@ -26,6 +26,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.core.io.ByteArrayResource;
 import org.springframework.core.io.Resource;
+import org.springframework.transaction.PlatformTransactionManager;
 
 /**
  * {@code UploadService.serve()}が「存在確認→DB検索→ライブ権限再チェック→(成功時のみ)本文取得」の順序を守ることを検証する単体テスト。
@@ -43,6 +44,7 @@ class UploadServiceOrderingTest {
   @Mock private ChannelAuthorizationService channelAuthorizationService;
   @Mock private DmAuthorizationService dmAuthorizationService;
   @Mock private AuditLogger auditLogger;
+  @Mock private PlatformTransactionManager transactionManager;
 
   private UploadService uploadService;
 
@@ -59,7 +61,8 @@ class UploadServiceOrderingTest {
             userRepository,
             channelAuthorizationService,
             dmAuthorizationService,
-            auditLogger);
+            auditLogger,
+            transactionManager);
   }
 
   @Test
