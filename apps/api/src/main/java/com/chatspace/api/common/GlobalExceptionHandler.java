@@ -16,6 +16,8 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
+import org.springframework.web.servlet.NoHandlerFoundException;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 /** 共通例外階層をHTTPステータス・エラーボディへ変換する。 */
 @RestControllerAdvice
@@ -62,6 +64,15 @@ public class GlobalExceptionHandler {
         request.getMethod(),
         request.getRequestURI(),
         ex.getClass().getSimpleName());
+  }
+
+  /**
+   * どのハンドラにも静的リソースにも一致しないパス(タイプミス、無効化されたSwagger UI等)。 {@code
+   * Exception.class}の汎用フォールバック(500)に落ちて紛らわしい応答になるのを防ぎ、 素直に404を返す(レビュー指摘対応)。
+   */
+  @ExceptionHandler({NoResourceFoundException.class, NoHandlerFoundException.class})
+  public ResponseEntity<ErrorResponse> handleNoResourceFound(Exception ex) {
+    return ResponseEntity.status(HttpStatus.NOT_FOUND).body(new ErrorResponse("リソースが見つかりません。"));
   }
 
   @ExceptionHandler(ConflictException.class)
