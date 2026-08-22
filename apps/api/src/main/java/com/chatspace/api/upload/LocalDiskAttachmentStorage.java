@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Optional;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.core.io.FileSystemResource;
@@ -42,13 +43,27 @@ public class LocalDiskAttachmentStorage implements AttachmentStorage {
   /** パストラバーサル対策(添付ファイル機能定義書§3.2): 正規化後のパスが{@code uploadDir}配下であることを再確認する。 */
   @Override
   public boolean exists(String storageKey) {
-    Path target = uploadDir.resolve(storageKey).normalize();
-    return target.startsWith(uploadDir) && Files.isRegularFile(target);
+    return resolveWithinUploadDir(storageKey).map(Files::isRegularFile).orElse(false);
   }
 
+  /**
+   * 呼び出し側は{@link #exists(String)}が{@code true}を返した後にのみ呼ぶ契約だが、将来の呼び出し順序の実装ミスに
+   * 備えてここでも同じパストラバーサル検証を再確認する(二重防御、レビュー指摘対応)。
+   */
   @Override
   public Resource load(String storageKey) {
-    return new FileSystemResource(uploadDir.resolve(storageKey).normalize());
+    Path target =
+        resolveWithinUploadDir(storageKey)
+            .orElseThrow(
+                () ->
+                    new IllegalStateException(
+                        "exists()での検証を経ずにload()が呼ばれた不正なstorageKeyです: " + storageKey));
+    return new FileSystemResource(target);
+  }
+
+  private Optional<Path> resolveWithinUploadDir(String storageKey) {
+    Path target = uploadDir.resolve(storageKey).normalize();
+    return target.startsWith(uploadDir) ? Optional.of(target) : Optional.empty();
   }
 
   @Override

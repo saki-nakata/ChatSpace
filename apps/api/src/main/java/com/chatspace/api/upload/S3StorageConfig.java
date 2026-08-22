@@ -1,12 +1,14 @@
 package com.chatspace.api.upload;
 
 import java.net.URI;
+import java.time.Duration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
+import software.amazon.awssdk.core.client.config.ClientOverrideConfiguration;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.S3Configuration;
@@ -21,6 +23,14 @@ import software.amazon.awssdk.services.s3.S3Configuration;
 @EnableConfigurationProperties(S3StorageProperties.class)
 public class S3StorageConfig {
 
+  /**
+   * {@code GET /uploads/{storageKey}}はリクエストのたびにR2を呼ぶため、R2側の遅延・障害でTomcatスレッドが
+   * 長時間ブロックされないよう明示的にタイムアウトを設定する(レビュー指摘対応)。
+   */
+  private static final Duration API_CALL_TIMEOUT = Duration.ofSeconds(30);
+
+  private static final Duration API_CALL_ATTEMPT_TIMEOUT = Duration.ofSeconds(10);
+
   @Bean
   public S3Client s3Client(S3StorageProperties properties) {
     return S3Client.builder()
@@ -34,6 +44,11 @@ public class S3StorageConfig {
             S3Configuration.builder()
                 .pathStyleAccessEnabled(true)
                 .chunkedEncodingEnabled(false)
+                .build())
+        .overrideConfiguration(
+            ClientOverrideConfiguration.builder()
+                .apiCallTimeout(API_CALL_TIMEOUT)
+                .apiCallAttemptTimeout(API_CALL_ATTEMPT_TIMEOUT)
                 .build())
         .build();
   }
