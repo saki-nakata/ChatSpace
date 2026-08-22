@@ -66,12 +66,17 @@ public class LocalDiskAttachmentStorage implements AttachmentStorage {
     return target.startsWith(uploadDir) ? Optional.of(target) : Optional.empty();
   }
 
+  /** {@link #exists(String)}・{@link #load(String)}と同じ検証を再利用し、パストラバーサルキーでの削除を防ぐ(レビュー指摘対応)。 */
   @Override
   public void delete(String storageKey) {
-    try {
-      Files.deleteIfExists(uploadDir.resolve(storageKey));
-    } catch (IOException ignored) {
-      // ベストエフォート。孤児ファイルが残っても認可・DoSには影響しない(添付ファイル機能定義書§8)
-    }
+    resolveWithinUploadDir(storageKey)
+        .ifPresent(
+            target -> {
+              try {
+                Files.deleteIfExists(target);
+              } catch (IOException ignored) {
+                // ベストエフォート。孤児ファイルが残っても認可・DoSには影響しない(添付ファイル機能定義書§8)
+              }
+            });
   }
 }

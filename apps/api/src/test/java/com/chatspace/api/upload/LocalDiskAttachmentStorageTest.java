@@ -52,4 +52,20 @@ class LocalDiskAttachmentStorageTest {
     // exists()を経由しない不正な呼び出し順序を模擬しても、load()自体がuploadDir配下チェックで弾くこと
     assertThrows(IllegalStateException.class, () -> storage.load("../outside-secret.png"));
   }
+
+  @Test
+  void delete_pathTraversalKey_doesNotDeleteOutsideFile() throws IOException {
+    Path outside = tempDir.getParent().resolve("outside-secret.png");
+    try {
+      java.nio.file.Files.write(outside, new byte[] {9});
+      LocalDiskAttachmentStorage storage = new LocalDiskAttachmentStorage(tempDir.toString());
+
+      // 例外を投げずに黙って何もしないこと(delete()はベストエフォート)。uploadDir外のファイルは消えないこと
+      storage.delete("../outside-secret.png");
+
+      assertTrue(java.nio.file.Files.exists(outside));
+    } finally {
+      java.nio.file.Files.deleteIfExists(outside);
+    }
+  }
 }
