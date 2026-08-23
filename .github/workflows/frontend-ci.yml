@@ -1,14 +1,10 @@
 name: Frontend CI (apps/web)
 
 on:
+  # pull_request側はpathsで絞らない: 必須ステータスチェック(ブランチ保護)に指定した場合、
+  # paths不一致でジョブ自体が起動しないPRは「Expected — チェック結果待ち」のまま永久にマージ不能になるため
+  # (push側はブランチへのマージ後の実行なので絞り込みを維持する)
   pull_request:
-    paths:
-      - "apps/web/**"
-      - ".github/workflows/frontend-ci.yml"
-      # STOMP宛先契約テスト(AUTH-N18)はJava側の宛先定義と突き合わせるため、
-      # バックエンド単独の変更でもドリフトを検出できるようトリガーに含める
-      - "apps/api/src/main/java/com/chatspace/api/realtime/StompDestinations.java"
-      - "apps/api/build.gradle.kts"
   push:
     branches: [main]
     paths:
@@ -27,7 +23,7 @@ permissions:
   contents: read
 
 jobs:
-  build:
+  frontend-build:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     defaults:
