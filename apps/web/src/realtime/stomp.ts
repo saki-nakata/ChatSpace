@@ -56,8 +56,12 @@ export function sendToApp(destination: string, body = ""): void {
  *
  * <p>{@code Client.activate()}呼び出し直後はまだWebSocketハンドシェイクが完了しておらず、
  * この状態で{@code Client.subscribe()}を呼ぶと`There is no underlying STOMP connection`で
- * 例外になる(実機ブラウザ確認で発見した競合状態)。接続済みなら即座に、未接続なら
- * {@code onConnect}(再接続時も含めて毎回発火する)を待ってから購読する設計にする。
+ * 例外になる(実機ブラウザ確認で発見した競合状態)。接続済みなら即座に購読するが、
+ * **接続済み・未接続のどちらの場合でも常に{@code onConnect}を経由した再購読を仕込む**(実機デプロイ確認で
+ * 発見したバグの修正)。STOMPは接続ごとに独立したセッションのため、切断→自動再接続
+ * (`reconnectDelay`)が起きるとサーバー側の購読状態は失われる。呼び出し時点で既に接続済みだった
+ * 場合にのみ{@code onConnect}を素通りしていた旧実装では、再接続後にサーバーへ再度SUBSCRIBEが
+ * 送られず、以後そのチャンネルの新着イベントが二度と届かなくなっていた。
  */
 export function subscribeJson<T = unknown>(
   destination: string,
@@ -76,14 +80,14 @@ export function subscribeJson<T = unknown>(
     });
   };
 
+  const previousOnConnect = c.onConnect;
+  c.onConnect = (frame) => {
+    previousOnConnect?.(frame);
+    doSubscribe();
+  };
+
   if (c.connected) {
     doSubscribe();
-  } else {
-    const previousOnConnect = c.onConnect;
-    c.onConnect = (frame) => {
-      previousOnConnect?.(frame);
-      doSubscribe();
-    };
   }
 
   return () => {
