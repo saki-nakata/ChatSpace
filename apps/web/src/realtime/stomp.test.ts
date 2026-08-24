@@ -75,4 +75,24 @@ describe("subscribeJson", () => {
 
     expect(mockClientInstance.subscribe).toHaveBeenCalledTimes(1);
   });
+
+  it("複数購読のうち1つだけ解除しても、残りは再接続時に再購読される(積み上がりリークが無いことの確認、レビュー指摘対応)", async () => {
+    const { getStompClient, subscribeJson } = await import("./stomp");
+    getStompClient();
+    mockClientInstance.connected = true;
+
+    // チャンネル切り替え等を模して2つ購読し、片方(古い方)だけ解除する
+    const unsubscribeFirst = subscribeJson("/topic/channel-a", vi.fn());
+    subscribeJson("/topic/channel-b", vi.fn());
+    expect(mockClientInstance.subscribe).toHaveBeenCalledTimes(2);
+
+    unsubscribeFirst();
+    mockClientInstance.subscribe.mockClear();
+
+    // 再接続時、解除済みのchannel-aは再購読されず、channel-bのみ再購読されること
+    mockClientInstance.onConnect?.({});
+
+    expect(mockClientInstance.subscribe).toHaveBeenCalledTimes(1);
+    expect(mockClientInstance.subscribe).toHaveBeenCalledWith("/topic/channel-b", expect.any(Function));
+  });
 });
