@@ -23,8 +23,19 @@ export interface RealtimeEvent<T = unknown> {
 let client: Client | null = null;
 
 /**
+ * 再接続のたびに再実行する購読処理の集合。{@code subscribeJson}が追加し、返り値の購読解除関数が
+ * 確実に取り除く(レビュー指摘対応: 以前は{@code onConnect}への追加のみでチェーンから取り除く手段が無く、
+ * チャンネル/DM切り替えのたびにクロージャが積み上がり続けるリークになっていた)。
+ */
+const resubscribeCallbacks = new Set<() => void>();
+
+/**
  * STOMPクライアントをシングルトンで取得・接続する。Cookie(httpOnly JWT)はWebSocketハンドシェイクへ
  * 自動送信されるため、`Authorization`ヘッダは不要(計画書§8)。SockJSフォールバックは使わず、生WebSocketのみ。
+ *
+ * <p>{@code onConnect}はここで一度だけ設定し、{@link #resubscribeCallbacks}を反復して各購読を
+ * 再実行する。STOMPは接続ごとに独立したセッションのため、切断→自動再接続(`reconnectDelay`)が起きると
+ * サーバー側の購読状態は失われるため、初回接続時・再接続時のどちらでも同じ経路で再購読させる。
  */
 export function getStompClient(): Client {
   if (!client) {
@@ -34,6 +45,9 @@ export function getStompClient(): Client {
       heartbeatIncoming: 10_000,
       heartbeatOutgoing: 10_000,
     });
+    client.onConnect = () => {
+      resubscribeCallbacks.forEach((resubscribe) => resubscribe());
+    };
     client.activate();
   }
   return client;
@@ -42,6 +56,9 @@ export function getStompClient(): Client {
 export function disconnectStomp(): void {
   client?.deactivate();
   client = null;
+  // 次回getStompClient()は新しいClientインスタンスを作るため、古いクライアントを参照したままの
+  // クロージャが残っているとそれを誤って呼んでしまう(レビュー指摘対応)
+  resubscribeCallbacks.clear();
 }
 
 /** `/app/**`宛のSEND(現状はタイピングイベントのみ)。未接続時は静かに無視する(ベストエフォート)。 */
@@ -56,8 +73,14 @@ export function sendToApp(destination: string, body = ""): void {
  *
  * <p>{@code Client.activate()}呼び出し直後はまだWebSocketハンドシェイクが完了しておらず、
  * この状態で{@code Client.subscribe()}を呼ぶと`There is no underlying STOMP connection`で
- * 例外になる(実機ブラウザ確認で発見した競合状態)。接続済みなら即座に、未接続なら
- * {@code onConnect}(再接続時も含めて毎回発火する)を待ってから購読する設計にする。
+ * 例外になる(実機ブラウザ確認で発見した競合状態)。接続済みなら即座に購読するが、
+ * **接続済み・未接続のどちらの場合でも{@link #resubscribeCallbacks}へ登録する**(実機デプロイ確認で
+ * 発見したバグの修正)。STOMPは接続ごとに独立したセッションのため、切断→自動再接続
+ * (`reconnectDelay`)が起きるとサーバー側の購読状態は失われる。呼び出し時点で既に接続済みだった
+ * 場合には再購読の仕組みが無かった旧実装では、再接続後にサーバーへ再度SUBSCRIBEが送られず、
+ * 以後そのチャンネルの新着イベントが二度と届かなくなっていた。返り値の購読解除関数は
+ * {@link #resubscribeCallbacks}からも確実に取り除く(チャンネル/DM切り替えのたびに再購読処理が
+ * 積み上がり続けるリークを防ぐ、レビュー指摘対応)。
  */
 export function subscribeJson<T = unknown>(
   destination: string,
@@ -76,18 +99,15 @@ export function subscribeJson<T = unknown>(
     });
   };
 
+  resubscribeCallbacks.add(doSubscribe);
+
   if (c.connected) {
     doSubscribe();
-  } else {
-    const previousOnConnect = c.onConnect;
-    c.onConnect = (frame) => {
-      previousOnConnect?.(frame);
-      doSubscribe();
-    };
   }
 
   return () => {
     unsubscribed = true;
+    resubscribeCallbacks.delete(doSubscribe);
     subscription?.unsubscribe();
   };
 }

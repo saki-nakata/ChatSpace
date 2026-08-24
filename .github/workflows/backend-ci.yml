@@ -1,11 +1,10 @@
 name: Backend CI (apps/api)
 
 on:
+  # pull_request側はpathsで絞らない: 必須ステータスチェック(ブランチ保護)に指定した場合、
+  # paths不一致でジョブ自体が起動しないPRは「Expected — チェック結果待ち」のまま永久にマージ不能になるため
+  # (push側はブランチへのマージ後の実行なので絞り込みを維持する)
   pull_request:
-    paths:
-      - "apps/api/**"
-      - "docker-compose.yml"
-      - ".github/workflows/backend-ci.yml"
   push:
     branches: [main]
     paths:
@@ -21,7 +20,7 @@ permissions:
   contents: read
 
 jobs:
-  build:
+  backend-build:
     runs-on: ubuntu-latest
     # Testcontainers を使うテストが増えると実行時間が読みにくくなるため上限を設ける(quality-checkスキルのワークフロー確認観点)
     timeout-minutes: 20
