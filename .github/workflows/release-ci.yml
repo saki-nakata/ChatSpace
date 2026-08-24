@@ -7,8 +7,15 @@ name: Release CI (production deploy gate)
 # (実装計画書/phase14.md参照)。このワークフローは paths フィルタなしで、バックエンド・
 # フロントエンドのビルド・テストに加え、実際にDockerイメージをビルドしてコンテナを起動する
 # スモークテストまで行う、production 向けの唯一かつ包括的なゲート。
+#
+# pull_request(base: production)も起動対象に含める: このチェックを production の
+# ブランチ保護で必須ステータスチェックに指定しているため、push トリガーのみだと
+# 「マージして初めて走るチェックを、マージ前に必須にしている」という堂々巡りになり、
+# main→production のPRが永久にマージ不能になる(main側のpaths撤廃と同じ理由)。
 
 on:
+  pull_request:
+    branches: [production]
   push:
     branches: [production]
 
