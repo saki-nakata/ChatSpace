@@ -16,6 +16,18 @@ PGSQL_DB="${PGSQL_DB:-chatspace}"
 COOKIE_JAR="$(mktemp)"
 trap 'rm -f "$COOKIE_JAR"' EXIT
 
+UUID_RE='^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+
+# APIレスポンス由来の値をSQLへ文字列展開する前提のため、想定外の値が紛れ込んでいないことを確認する
+# (このスクリプトは専用の使い捨てローカルコンテナ限定で使う前提だが、防御的に検証しておく)
+require_uuid() {
+  local name="$1" value="$2"
+  if [[ ! "$value" =~ $UUID_RE ]]; then
+    echo "エラー: $name がUUID形式ではありません: $value" >&2
+    exit 1
+  fi
+}
+
 echo "== 1. alice としてログイン ==" >&2
 LOGIN_RES="$(curl -sf -c "$COOKIE_JAR" -X POST "$BASE_URL/auth/login" \
   -H "Content-Type: application/json" \
@@ -25,6 +37,7 @@ if [ -z "$ALICE_ID" ] || [ "$ALICE_ID" = "null" ]; then
   echo "エラー: alice のログインに失敗しました: $LOGIN_RES" >&2
   exit 1
 fi
+require_uuid "ALICE_ID" "$ALICE_ID"
 
 echo "== 2. Sample Workspace のID取得 ==" >&2
 WORKSPACE_ID="$(curl -sf -b "$COOKIE_JAR" "$BASE_URL/workspaces" \
@@ -33,6 +46,7 @@ if [ -z "$WORKSPACE_ID" ]; then
   echo "エラー: alice に紐づく Sample Workspace が見つかりません(dev,seedプロファイルで起動していますか?)" >&2
   exit 1
 fi
+require_uuid "WORKSPACE_ID" "$WORKSPACE_ID"
 
 echo "== 3. 検索用チャンネル作成 ==" >&2
 CHANNEL_NAME="k6-search-$(date +%s)"
@@ -44,6 +58,7 @@ if [ -z "$CHANNEL_ID" ] || [ "$CHANNEL_ID" = "null" ]; then
   echo "エラー: チャンネル作成に失敗しました: $CREATE_RES" >&2
   exit 1
 fi
+require_uuid "CHANNEL_ID" "$CHANNEL_ID"
 
 echo "== 4. コーパスをSQLで直接投入(5万件フィラー + マーカー200件×2) ==" >&2
 docker exec -i "$PGSQL_CONTAINER" psql -v ON_ERROR_STOP=1 -U "$PGSQL_USER" -d "$PGSQL_DB" <<SQL
