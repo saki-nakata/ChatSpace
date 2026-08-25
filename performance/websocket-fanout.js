@@ -11,10 +11,21 @@ const WEB_ORIGIN = __ENV.WEB_ORIGIN || "http://localhost:5173";
 const SUBSCRIBERS = __ENV.SUBSCRIBERS ? parseInt(__ENV.SUBSCRIBERS, 10) : 20;
 const SMOKE = __ENV.SMOKE === "true";
 
+// publisherシナリオの発行間隔・継続時間(下のoptions.scenariosと必ず一致させること)。
+// 各subscriberが「本来何件受信するはずだったか」をここから算出し、欠落検出に使う。
+const PUBLISHER_TIME_UNIT_S = 2;
+const PUBLISHER_DURATION_S = 60;
+const EXPECTED_MESSAGES = SMOKE ? 1 : Math.floor(PUBLISHER_DURATION_S / PUBLISHER_TIME_UNIT_S);
+
 // REST送信〜DBコミット〜AFTER_COMMIT送出〜WS受信までのエンドツーエンド遅延。
 // 純粋なブローカーのファンアウト遅延ではない(結果ドキュメントに明記すること)。
 export const wsEndToEndLatencyMs = new Trend("ws_end_to_end_latency_ms");
+// 各subscriberが接続終了時点で「本来受信するはずだった件数」のうち実際に受信できた分だけtrue、
+// 欠落した分をfalseとしてadd()する(レビュー指摘対応: 受信できたときにだけtrueを積む実装だと
+// 1件でも届けばrateが常に100%になり、欠落を検出できない構造的バグだったため)。
 export const wsMessageReceivedRate = new Rate("ws_message_received_rate");
+export const wsMessagesExpectedTotal = new Counter("ws_messages_expected_total");
+export const wsMessagesActualReceivedTotal = new Counter("ws_messages_actual_received_total");
 export const wsConnected = new Counter("ws_connected_total");
 export const wsConnectFailed = new Counter("ws_connect_failed_total");
 // POST自体の応答時間。ws_end_to_end_latency_msとは別指標として参考比較するのみで、
@@ -51,8 +62,8 @@ export const options = {
         publisher: {
           executor: "constant-arrival-rate",
           rate: 1,
-          timeUnit: "2s",
-          duration: "60s",
+          timeUnit: `${PUBLISHER_TIME_UNIT_S}s`,
+          duration: `${PUBLISHER_DURATION_S}s`,
           preAllocatedVUs: 2,
           maxVUs: 5,
           startTime: "10s",
@@ -105,6 +116,7 @@ export function subscriberVU(data) {
     },
     (socket) => {
       let connected = false;
+      let receivedCount = 0;
 
       socket.on("open", () => {
         socket.send(buildConnectFrame("localhost"));
@@ -131,6 +143,7 @@ export function subscriberVU(data) {
               if (match) {
                 const sentAt = parseInt(match[1], 10);
                 wsEndToEndLatencyMs.add(Date.now() - sentAt);
+                receivedCount += 1;
                 wsMessageReceivedRate.add(true);
               }
             }
@@ -140,6 +153,18 @@ export function subscriberVU(data) {
 
       socket.on("error", () => {
         if (!connected) wsConnectFailed.add(1);
+      });
+
+      socket.on("close", () => {
+        // 接続終了時点で「本来届くはずだった件数」との差分を欠落としてfalseで積む。
+        // publisherは10s後(startTime)に開始するため、subscriberの接続が確立していれば
+        // 発行された全メッセージを受け取れる想定(HOLD_MSはpublisherの送信完了より十分長い)。
+        wsMessagesExpectedTotal.add(EXPECTED_MESSAGES);
+        wsMessagesActualReceivedTotal.add(receivedCount);
+        const missing = Math.max(0, EXPECTED_MESSAGES - receivedCount);
+        for (let i = 0; i < missing; i++) {
+          wsMessageReceivedRate.add(false);
+        }
       });
 
       socket.setTimeout(() => {

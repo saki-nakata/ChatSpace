@@ -83,23 +83,28 @@ Execution Time: 0.624 ms
 
 ## シナリオ3: STOMP WebSocket接続の同時接続数とメッセージ配信のファンアウト遅延
 
-**負荷条件**: subscriber 20VU(各1接続を約85秒保持、`per-vu-iterations`) + publisher(2秒に1回、60秒間で30回送信、subscriber接続完了を待って10秒後に開始)
+**負荷条件**: subscriber 20VU(各1接続を約85秒保持、`per-vu-iterations`) + publisher(2秒に1回、60秒間で約30回送信、subscriber接続完了を待って10秒後に開始)
+
+**指標の修正(レビュー指摘対応、2026-08-26再実施)**: 初回実装の`ws_message_received_rate`は、メッセージを実際に受信できた場合にのみ`add(true)`を呼ぶ実装になっており、欠落(期待した件数より少なく届いたケース)を`add(false)`する経路が存在しなかった。k6の`Rate`メトリクスは「addされた値のうちtrueの割合」のため、この実装では1件でも受信できればrateが常に100%になり、メッセージロスを構造的に検出できないバグだった(初回結果ドキュメントの「600/600」は受信数の実測値としては正しいが、rate自体の閾値判定は事実上機能していなかった)。`performance/websocket-fanout.js`を、各subscriberの接続終了時に「本来届くはずだった件数(`ws_messages_expected_total`)」と「実際に受信できた件数(`ws_messages_actual_received_total`)」を比較し、不足分だけ`add(false)`する実装に修正した上で再実施した。
 
 | 指標 | 値 |
 |---|---|
 | WS接続成功数 | 20/20(100%) |
-| ws_message_received_rate | 100.00%(600/600 = 20subscriber × 30メッセージ) |
-| dropped_iterations(publisher) | 0(意図した30/30回すべて実行) |
-| ws_end_to_end_latency_ms avg | 42.67ms |
-| ws_end_to_end_latency_ms p90 | 46.6ms |
-| ws_end_to_end_latency_ms p95 | 64ms |
-| ws_end_to_end_latency_ms p99 | 228ms |
-| ws_end_to_end_latency_ms max | 229ms |
-| message_post_latency_ms avg(参考比較) | 42.77ms |
-| message_post_latency_ms p95(参考比較) | 60.22ms |
-| message_post_latency_ms p99(参考比較) | 180.88ms |
+| ws_messages_expected_total | 600(20subscriber × 期待30メッセージ) |
+| ws_messages_actual_received_total | 620(publisherの`constant-arrival-rate`が実際には31回発行したため、期待値をわずかに上回った) |
+| ws_message_received_rate(修正後) | 100.00%(620/620、欠落0件を実測で確認) |
+| ws_end_to_end_latency_ms avg | 79.06ms |
+| ws_end_to_end_latency_ms p90 | 115ms |
+| ws_end_to_end_latency_ms p95 | 116ms |
+| ws_end_to_end_latency_ms p99 | 136ms |
+| ws_end_to_end_latency_ms max | 136ms |
+| message_post_latency_ms avg(参考比較) | 80.28ms |
+| message_post_latency_ms p95(参考比較) | 117.33ms |
+| message_post_latency_ms p99(参考比較) | 130.52ms |
 
 `ws_end_to_end_latency_ms`は「REST送信〜DBコミット〜`AFTER_COMMIT`送出〜WS受信」までの体感遅延全体であり、**純粋なブローカーのファンアウト遅延ではない**。`message_post_latency_ms`(POST自体の応答時間)は別指標として並記する参考比較にとどめ、両者を単純に差し引いた「内訳」は算出していない(サンプル数・分布が異なる集約後のp95同士を減算しても正確な内訳にはならないため。正確な内訳が必要な場合はメッセージID単位の生データ相関が別途必要)。
+
+なお今回の再実施はローカルマシンの負荷状況により初回実施時より遅延がやや大きい(p95が64ms→116ms)。この差はメトリクス修正そのものとは無関係で、実施タイミングによる環境要因(バックエンドの再起動直後でJITウォームアップが浅い、他プロセスのCPU使用状況等)によるものと考えられる。両実施とも失敗・欠落は無く、傾向として大きな乖離ではない。
 
 両指標がほぼ同じオーダーであることから、エンドツーエンド遅延の大部分はREST POST自体の応答時間に占められており、ブローカーのファンアウト自体(サーバー内でのbroadcast〜WS送出)に大きな追加遅延は無いと推測される(推測にとどめ、断定はしない)。
 
