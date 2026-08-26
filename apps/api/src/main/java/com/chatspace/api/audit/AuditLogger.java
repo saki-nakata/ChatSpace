@@ -43,6 +43,7 @@ public class AuditLogger {
   public enum Event {
     LOGIN_FAILED,
     LOGIN_RATE_LIMITED,
+    SIGNUP_RATE_LIMITED,
     AUTHORIZATION_DENIED,
     OWNER_ACTION_SUCCEEDED,
     MEMBER_ACTION_SUCCEEDED,
@@ -73,6 +74,18 @@ public class AuditLogger {
         .addKeyValue("attemptedUserId", sanitizeAttemptedUserId(attemptedUserId))
         .addKeyValue("remoteAddress", remoteAddress)
         .log("レート制限中のログイン試行を拒否しました。");
+  }
+
+  /**
+   * レート制限により拒否された新規登録試行(公開デモ化に伴う対応)。
+   *
+   * <p>ログインと同じイベント種別にまとめない。監視側で「総当たりログインが来ている」のか 「自動アカウント生成が来ている」のかは対応が異なるため、区別できる必要がある。
+   */
+  public void signupRateLimited(String attemptedUserId, String remoteAddress) {
+    event(Event.SIGNUP_RATE_LIMITED)
+        .addKeyValue("attemptedUserId", sanitizeAttemptedUserId(attemptedUserId))
+        .addKeyValue("remoteAddress", remoteAddress)
+        .log("レート制限中の新規登録試行を拒否しました。");
   }
 
   /**

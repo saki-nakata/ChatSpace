@@ -91,6 +91,17 @@ jobs:
       - name: Frontend build
         run: pnpm --filter @chatspace/web run build
 
+      # STOMP宛先の契約テストが apps/api の出力するJSONと突き合わせるため、
+      # フロントエンドのテスト前にJSONを生成しておく(frontend-ci.yml と同じ理由)
+      - name: Export STOMP destinations (contract test fixture)
+        working-directory: apps/api
+        run: ./gradlew exportStompDestinations --console=plain
+
+      # production向けの唯一のゲートである以上、フロントエンドのテストもここで実行する
+      # (ストア・コンポーネントのテストを追加した際に、release-ci だけ素通りしていたため追加)
+      - name: Frontend test
+        run: pnpm --filter @chatspace/web run test
+
       - name: Docker build
         run: docker build -t chatspace:ci .
 

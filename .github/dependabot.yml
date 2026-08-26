@@ -1,0 +1,54 @@
+# 依存パッケージの既知脆弱性・更新の自動検知(レビュー指摘対応)。
+#
+# 既存CIはビルド・テストには効くが、依存パッケージのCVE検知は自動化されていなかった。
+# 公開デモとして常時稼働させる以上、放置された脆弱依存を検知する仕組みが要る。
+#
+# PR数が多いと確認しきれず形骸化するため、週次・上限3件に絞り、マイナー/パッチはまとめて
+# 1本のPRにする(メジャーは破壊的変更を伴うため個別PRのまま残す)。
+version: 2
+updates:
+  # --- フロントエンド(pnpm。ルートに pnpm-lock.yaml があり apps/web をワークスペースとして含む) ---
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: Asia/Tokyo
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      npm-minor-and-patch:
+        update-types:
+          - minor
+          - patch
+
+  # --- バックエンド(Gradle。ラッパー・ビルドスクリプトとも apps/api 配下) ---
+  - package-ecosystem: gradle
+    directory: /apps/api
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: Asia/Tokyo
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      gradle-minor-and-patch:
+        update-types:
+          - minor
+          - patch
+
+  # --- GitHub Actions(ワークフローが参照するアクションのバージョン) ---
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: Asia/Tokyo
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: "chore(deps)"

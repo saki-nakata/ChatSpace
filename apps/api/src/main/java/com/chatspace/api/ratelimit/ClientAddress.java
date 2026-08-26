@@ -40,4 +40,15 @@ public final class ClientAddress {
   public static String loginKey(String attemptedUserId, String remoteAddress) {
     return "login|" + (attemptedUserId == null ? "" : attemptedUserId) + "|" + remoteAddress;
   }
+
+  /**
+   * 新規登録のレート制限キー。<b>クライアントIPのみ</b>で構成する。
+   *
+   * <p>ログインと違い、新規登録では攻撃者がユーザーIDを毎回自由に決められるため、キーにユーザーIDを
+   * 含めると毎回別キーになり制限が一切効かなくなる。IP単独にすることの副作用(同一NAT配下の巻き込み)は、 上限をログインより緩く設定することで緩和する({@link
+   * AuthRateLimiter#acquireSignupAttempt(String)})。
+   */
+  public static String signupKey(String remoteAddress) {
+    return "signup|" + remoteAddress;
+  }
 }

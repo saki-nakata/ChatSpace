@@ -16,4 +16,9 @@ chatspace:
     max-attempts: 5
     window: 15m
     block-duration: 15m
+  # SignupRateLimitIntegrationTest の MAX_ATTEMPTS と一致させること
+  signup-rate-limit:
+    max-attempts: 3
+    window: 1h
+    block-duration: 1h
   upload-dir: ./build/test-uploads
