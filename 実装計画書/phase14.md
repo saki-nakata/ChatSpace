@@ -55,7 +55,7 @@ Render Web Serviceへ初回設定するチェックリスト:
 - [ ] `STORAGE_TYPE=s3` + R2関連5項目(`STORAGE_S3_BUCKET`/`STORAGE_S3_ENDPOINT`/`STORAGE_S3_REGION`/
       `STORAGE_S3_ACCESS_KEY_ID`/`STORAGE_S3_SECRET_ACCESS_KEY`。R2はバケット限定の最小権限トークンを発行して使う)
 - [ ] `SWAGGER_ENABLED=false`
-- [ ] `LOG_STRUCTURED_FORMAT=logstash`
+- [x] `LOG_STRUCTURED_FORMAT=logstash`(2026-08-26、実機`chatspace`サービスで設定済み・JSON出力を確認。詳細は`docs/ログ運用設計書.md` §4)
 - [ ] Health Check Path: `/health`
 - [ ] 初回は手動デプロイでビルド所要時間を計測する(Gradle+pnpmの重いビルドがRender無料枠のビルド時間内に
       収まるか確認。収まらない場合は別途対応を検討)
