@@ -19,7 +19,7 @@ apps/web/   React + Vite製フロントエンド(ポート 5173)
 - 認証のレート制限・構造化ログ/監査ログ・情報漏洩監査はフェーズ12で対応済み。SameSite/CSRF方針もフェーズ14で本番ドメイン確定後に再確認し、フロント同梱の同一オリジン構成のため`SameSite=Lax`のままで追加変更不要と結論済み
 - 新規登録・ログインにはIP単位のレート制限があるが、添付アップロードの回数・ユーザー別容量には上限がなく、`messageId IS NULL`の未使用アップロードの定期削除も未実装
 - 自動テストは認可クリティカルパス中心。AUTH-P01〜P10・AUTH-N01〜N29 は全て自動テスト化済み(バックエンド131件)だが、全機能の網羅ではない
-- **フロントエンドの自動テストはSTOMP周辺の5件のみ**(宛先の契約テスト1件、再接続・再購読の回帰テスト4件)。コンポーネント・状態管理のテストとブラウザE2E(Playwright等)は未整備で、フロントのソース約46ファイルに対して明確に不足している
+- フロントエンドの自動テストは37件(STOMP契約1・STOMP再接続4・authStore 8・notificationStore 7・Modal 11・LoginPage 6)。**ブラウザE2E(Playwright等)は未整備**で、`ChatView`に依存する導線(未読区切り線、ジャンプ、添付アップロード失敗、再試行UI、モバイル幅)はreact-virtuosoの仮想スクロールがjsdomで描画されないため、コンポーネントテストではなくE2Eの対象として残している
 - アクセシビリティは一部未対応(メンション候補の上下矢印選択、フォームエラーの`aria-invalid`/`aria-describedby`、新着メッセージ・タイピング表示の`aria-live`、キーボードのみでの主要導線検証)
 
 ### ビルド・テスト・Lint
@@ -43,7 +43,7 @@ pnpm install
 pnpm run typecheck
 pnpm run lint      # 警告0件が必須
 pnpm run build
-pnpm run test      # STOMP宛先の契約テスト(vitest)。事前に exportStompDestinations が必要
+pnpm run test      # vitest(ストア・コンポーネント・STOMP契約テスト)。契約テストのため事前に exportStompDestinations が必要
 pnpm run dev       # Web(:5173)
 ```
 
