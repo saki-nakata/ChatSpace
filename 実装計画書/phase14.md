@@ -45,9 +45,16 @@ Renderが自動注入する`DATABASE_URL`(`postgresql://...`形式)とは非互�
 `docs/インフラ構成書.md` §5参照)。**Render PostgreSQLダッシュボードの個別接続情報から手動で組み立てて
 個別環境変数として設定する**運用で対応する。
 
+> **この節の位置づけ**: 初回セットアップ時に「何を設定すべきか」を列挙した**手順メモ**であり、実施記録ではない。
+> **実機デプロイ自体は2026-08-23に完了しており**(公開URL: https://chatspace-ydxk.onrender.com 、稼働中)、
+> アプリが起動しログイン・添付ファイル・WebSocketが動作している以上、DB接続・`JWT_SECRET`・`WEB_ORIGIN`・
+> R2関連の設定は実際には投入済みである。下のチェックボックスは、**後日ダッシュボード上で個別に再確認が取れた
+> 項目にのみ**印を付けている(未チェック=未設定、ではない)。実際のデプロイ実績の記録は
+> `.plans/render-deploy-handoff.md` §7(Git管理対象外)を参照。
+
 Render Web Serviceへ初回設定するチェックリスト:
 
-- [ ] ビルド方式: Docker(リポジトリルートの`Dockerfile`)を選択
+- [x] ビルド方式: Docker(リポジトリルートの`Dockerfile`)を選択(2026-08-26、Renderダッシュボードのサービス画面に`Docker`表示を確認)
 - [ ] `DATABASE_URL_JDBC` / `DATABASE_USERNAME` / `DATABASE_PASSWORD`(手動組み立て)
 - [ ] `JWT_SECRET`(Renderのシークレット管理)
 - [ ] `WEB_ORIGIN=https://<実際のRenderサービスURL>`
@@ -56,7 +63,7 @@ Render Web Serviceへ初回設定するチェックリスト:
       `STORAGE_S3_ACCESS_KEY_ID`/`STORAGE_S3_SECRET_ACCESS_KEY`。R2はバケット限定の最小権限トークンを発行して使う)
 - [ ] `SWAGGER_ENABLED=false`
 - [x] `LOG_STRUCTURED_FORMAT=logstash`(2026-08-26、実機`chatspace`サービスで設定済み・JSON出力を確認。詳細は`docs/ログ運用設計書.md` §4)
-- [ ] Health Check Path: `/health`
+- [x] Health Check Path: `/health`(2026-08-26、転送先のNew Relic上で`{"path":"/health","status":200}`のアクセスログを確認)
 - [ ] 初回は手動デプロイでビルド所要時間を計測する(Gradle+pnpmの重いビルドがRender無料枠のビルド時間内に
       収まるか確認。収まらない場合は別途対応を検討)
 
