@@ -29,6 +29,9 @@ class AuthRateLimiterTest {
   private static final Duration WINDOW = Duration.ofMinutes(15);
   private static final Duration BLOCK = Duration.ofMinutes(15);
   private static final String KEY = "login|alice|198.51.100.10";
+  private static final int SIGNUP_MAX_ATTEMPTS = 10;
+  private static final Duration SIGNUP_WINDOW = Duration.ofHours(1);
+  private static final Duration SIGNUP_BLOCK = Duration.ofHours(1);
 
   /** 上限回数までの試行は通ること(正当な打ち間違いを妨げない)。 */
   @Test
@@ -224,8 +227,52 @@ class AuthRateLimiterTest {
             .equals(ClientAddress.loginKey("alicE", "198.51.100.10")));
   }
 
+  /** 新規登録キーはIP単独で構成され、ユーザーIDを変えても同一キーになること。 */
+  @Test
+  void signupKeyIgnoresUserIdAndDependsOnAddressOnly() {
+    assertEquals(
+        ClientAddress.signupKey("198.51.100.10"), ClientAddress.signupKey("198.51.100.10"));
+    assertFalse(
+        ClientAddress.signupKey("198.51.100.10").equals(ClientAddress.signupKey("198.51.100.11")));
+    // ログイン用キーとは衝突しない(別のプレフィックスを持つ)
+    assertFalse(
+        ClientAddress.signupKey("198.51.100.10")
+            .equals(ClientAddress.loginKey("", "198.51.100.10")));
+  }
+
+  /** 新規登録の枠はログインの枠と独立しており、片方を使い切ってももう片方は通ること。 */
+  @Test
+  void signupAndLoginQuotasAreIndependent() {
+    AuthRateLimiter limiter = newLimiter(new MutableClock());
+    String address = "198.51.100.50";
+
+    // ログイン枠を上限まで使い切る
+    for (int i = 0; i < MAX_ATTEMPTS; i++) {
+      limiter.acquireAttempt(ClientAddress.loginKey("alice", address));
+    }
+    assertThrows(
+        TooManyRequestsException.class,
+        () -> limiter.acquireAttempt(ClientAddress.loginKey("alice", address)));
+
+    // 同一IPでも新規登録枠は独立して残っている
+    limiter.acquireSignupAttempt(ClientAddress.signupKey(address));
+  }
+
+  /** 新規登録の上限を超えると429相当の例外になること。 */
+  @Test
+  void signupExceedingMaxAttempts_throws() {
+    AuthRateLimiter limiter = newLimiter(new MutableClock());
+    String key = ClientAddress.signupKey("198.51.100.51");
+
+    for (int i = 0; i < SIGNUP_MAX_ATTEMPTS; i++) {
+      limiter.acquireSignupAttempt(key);
+    }
+    assertThrows(TooManyRequestsException.class, () -> limiter.acquireSignupAttempt(key));
+  }
+
   private AuthRateLimiter newLimiter(Clock clock) {
-    return new AuthRateLimiter(clock, MAX_ATTEMPTS, WINDOW, BLOCK);
+    return new AuthRateLimiter(
+        clock, MAX_ATTEMPTS, WINDOW, BLOCK, SIGNUP_MAX_ATTEMPTS, SIGNUP_WINDOW, SIGNUP_BLOCK);
   }
 
   /** テストから任意に時間を進められる{@link Clock}。 */

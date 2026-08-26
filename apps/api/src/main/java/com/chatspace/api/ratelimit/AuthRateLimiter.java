@@ -49,20 +49,24 @@ public class AuthRateLimiter {
   private final Map<String, Attempt> attempts = new ConcurrentHashMap<>();
   private final AtomicReference<Instant> lastPurgeAt = new AtomicReference<>(Instant.EPOCH);
   private final Clock clock;
-  private final int maxAttempts;
-  private final Duration window;
-  private final Duration blockDuration;
+  private final Limit loginLimit;
+  private final Limit signupLimit;
 
   public AuthRateLimiter(
       Clock clock,
       @Value("${chatspace.auth-rate-limit.max-attempts}") int maxAttempts,
       @Value("${chatspace.auth-rate-limit.window}") Duration window,
-      @Value("${chatspace.auth-rate-limit.block-duration}") Duration blockDuration) {
+      @Value("${chatspace.auth-rate-limit.block-duration}") Duration blockDuration,
+      @Value("${chatspace.signup-rate-limit.max-attempts}") int signupMaxAttempts,
+      @Value("${chatspace.signup-rate-limit.window}") Duration signupWindow,
+      @Value("${chatspace.signup-rate-limit.block-duration}") Duration signupBlockDuration) {
     this.clock = clock;
-    this.maxAttempts = maxAttempts;
-    this.window = window;
-    this.blockDuration = blockDuration;
+    this.loginLimit = new Limit(maxAttempts, window, blockDuration);
+    this.signupLimit = new Limit(signupMaxAttempts, signupWindow, signupBlockDuration);
   }
+
+  /** 1種類のレート制限設定(上限回数・ウィンドウ・ブロック時間)。 */
+  private record Limit(int maxAttempts, Duration window, Duration blockDuration) {}
 
   /**
    * 1回分の試行枠を原子的に確保する。認証処理を実行する<b>前</b>に呼ぶこと。
@@ -72,16 +76,36 @@ public class AuthRateLimiter {
    * ブロックを延長する(ウィンドウ経過でカウンタが振り出しに戻ると、解除直後に再び上限回数まで試せてしまい 総当たりの実効速度が上がるため)。
    */
   public void acquireAttempt(String key) {
+    acquire(key, loginLimit);
+  }
+
+  /**
+   * 新規登録1回分の試行枠を原子的に確保する。登録処理を実行する<b>前</b>に呼ぶこと。
+   *
+   * <p><b>ログインとは別の設定値・別のキー体系を使う</b>(公開デモ化に伴う対応)。公開URLで誰でも登録できる
+   * 以上、無制限の自動登録によるアカウント大量生成とそれに続く添付アップロード濫用が成立してしまうため、 IP単位で登録回数を制限する。
+   *
+   * <p><b>キーにユーザーIDを含めない</b>: 新規登録では攻撃者がユーザーIDを毎回自由に決められるため、 ログインと同じ「ユーザーID +
+   * IP」キーにすると毎回別キーになり制限が一切効かない。したがって {@link
+   * ClientAddress#signupKey(String)}はIPのみをキーにする。同一NAT配下の巻き込みを避けるため、 上限はログインより緩く(既定で1時間あたり10件)取る。
+   *
+   * <p><b>成功時にリセットしない</b>: ログインと違い「成功した登録」こそが数えたい対象であるため、 {@link #reset(String)}は呼ばない。
+   */
+  public void acquireSignupAttempt(String key) {
+    acquire(key, signupLimit);
+  }
+
+  private void acquire(String key, Limit limit) {
     Instant now = clock.instant();
     enforceCapacity(now);
     Attempt result =
         attempts.compute(
             key,
             (ignored, current) -> {
-              if (current == null || current.isWindowExpired(now, window)) {
+              if (current == null || current.isWindowExpired(now, limit.window())) {
                 return Attempt.firstAttempt(now);
               }
-              return current.withAdditionalAttempt(now, maxAttempts, blockDuration);
+              return current.withAdditionalAttempt(now, limit.maxAttempts(), limit.blockDuration());
             });
     Instant blockedUntil = result.blockedUntil();
     if (blockedUntil != null && now.isBefore(blockedUntil)) {
@@ -113,7 +137,10 @@ public class AuthRateLimiter {
     Instant lastPurge = lastPurgeAt.get();
     boolean intervalElapsed = !now.isBefore(lastPurge.plus(MIN_PURGE_INTERVAL));
     if (intervalElapsed && lastPurgeAt.compareAndSet(lastPurge, now)) {
-      attempts.values().removeIf(attempt -> attempt.isFullyExpired(now, window));
+      // ログイン用とサインアップ用でウィンドウが異なるため、回収判定には長い方を使う
+      // (短い方を使うと、まだ有効なサインアップ枠を誤って回収してしまう)
+      Duration longestWindow = maxOf(loginLimit.window(), signupLimit.window());
+      attempts.values().removeIf(attempt -> attempt.isFullyExpired(now, longestWindow));
     }
     // 期限切れ回収後もなお上限に達している場合は、1回の走査で上限未満まで追い出す
     if (attempts.size() >= MAX_TRACKED_KEYS) {
@@ -123,6 +150,10 @@ public class AuthRateLimiter {
         iterator.remove();
       }
     }
+  }
+
+  private static Duration maxOf(Duration a, Duration b) {
+    return a.compareTo(b) >= 0 ? a : b;
   }
 
   /**
