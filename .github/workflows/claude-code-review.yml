@@ -13,9 +13,14 @@ jobs:
   review:
     # フォークからのPRではシークレットが渡されないため実行しない
     # ドラフトPRは Ready for review になるまでレビューしない
+    # DependabotのPRも実行しない: GitHubはDependabot起因のワークフローに通常のSecretsを渡さず、
+    # 別枠の「Dependabot secrets」を使う仕様のため、CLAUDE_CODE_OAUTH_TOKENが空文字になり
+    # Claude Code Actionが即座に失敗する(フォークからのPRと同じ理由)。依存バージョンの数値変更に
+    # AIレビューは要らず、必須チェックである backend-build / frontend-build は正常に動作する
     if: >-
       github.event.pull_request.head.repo.full_name == github.repository &&
-      github.event.pull_request.draft == false
+      github.event.pull_request.draft == false &&
+      github.event.pull_request.user.login != 'dependabot[bot]'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
