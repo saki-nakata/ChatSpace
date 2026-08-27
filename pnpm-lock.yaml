@@ -39,8 +39,8 @@ importers:
         specifier: ^3.4.14
         version: 3.4.14
       marked:
-        specifier: ^14.1.4
-        version: 14.1.4
+        specifier: ^18.0.10
+        version: 18.0.10
       react:
         specifier: ^18.3.1
         version: 18.3.1
@@ -1315,9 +1315,9 @@ packages:
   magic-string@0.30.21:
     resolution: {integrity: sha512-vd2F4YUyEXKGcLHoq+TEyCjxueSeHnFxyyjNp80yg0XV4vUhnDer/lvvlqM/arB5bXQN5K2/3oinyCRyx8T2CQ==}
 
-  marked@14.1.4:
-    resolution: {integrity: sha512-vkVZ8ONmUdPnjCKc5uTRvmkRbx4EAi2OkTOXmfTDhZz3OFqMNBM1oTTWwTr4HY4uAEojhzPf+Fy8F1DWa3Sndg==}
-    engines: {node: '>= 18'}
+  marked@18.0.10:
+    resolution: {integrity: sha512-FJeH4bRpYoXiggcgriCGItKCSv3xkngJc4QCZ/rkQCogU3VYaLxYJoZl8Nw/b4+x7iij/pd+09mZ6A1dXzpL0A==}
+    engines: {node: '>= 20'}
     hasBin: true
 
   mdn-data@2.27.1:
@@ -3024,7 +3024,7 @@ snapshots:
     dependencies:
       '@jridgewell/sourcemap-codec': 1.5.5
 
-  marked@14.1.4: {}
+  marked@18.0.10: {}
 
   mdn-data@2.27.1: {}
 
