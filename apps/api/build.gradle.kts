@@ -2,9 +2,9 @@ import org.springframework.boot.gradle.tasks.bundling.BootJar
 
 plugins {
     java
-    id("org.springframework.boot") version "4.1.0"
+    id("org.springframework.boot") version "4.1.1"
     id("io.spring.dependency-management") version "1.1.7"
-    id("com.diffplug.spotless") version "8.9.0"
+    id("com.diffplug.spotless") version "8.10.0"
 }
 
 group = "com.chatspace"
@@ -45,7 +45,7 @@ dependencies {
     implementation("org.springdoc:springdoc-openapi-starter-webmvc-ui:3.1.0")
 
     // 添付ファイルのオブジェクトストレージ化(フェーズ13、インフラ構成書§7.1)。Cloudflare R2はS3互換APIのためAWS SDK v2を使う
-    implementation("software.amazon.awssdk:s3:2.46.18")
+    implementation("software.amazon.awssdk:s3:2.54.2")
 
     runtimeOnly("org.postgresql:postgresql")
     // ローカル開発時のみ docker-compose.yml を自動起動する(本番ビルドには含めない)
