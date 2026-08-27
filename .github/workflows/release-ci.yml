@@ -47,7 +47,7 @@ jobs:
           --health-retries 10
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Set up JDK 21
         uses: actions/setup-java@v5
@@ -56,7 +56,7 @@ jobs:
           java-version: "21"
 
       - name: Cache Gradle dependencies
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.gradle/caches
@@ -70,7 +70,7 @@ jobs:
         run: ./gradlew build --console=plain
 
       - name: Set up pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
 
       - name: Set up Node.js
         uses: actions/setup-node@v5
@@ -90,6 +90,17 @@ jobs:
 
       - name: Frontend build
         run: pnpm --filter @chatspace/web run build
+
+      # STOMP宛先の契約テストが apps/api の出力するJSONと突き合わせるため、
+      # フロントエンドのテスト前にJSONを生成しておく(frontend-ci.yml と同じ理由)
+      - name: Export STOMP destinations (contract test fixture)
+        working-directory: apps/api
+        run: ./gradlew exportStompDestinations --console=plain
+
+      # production向けの唯一のゲートである以上、フロントエンドのテストもここで実行する
+      # (ストア・コンポーネントのテストを追加した際に、release-ci だけ素通りしていたため追加)
+      - name: Frontend test
+        run: pnpm --filter @chatspace/web run test
 
       - name: Docker build
         run: docker build -t chatspace:ci .

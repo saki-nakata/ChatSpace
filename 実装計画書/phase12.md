@@ -112,12 +112,13 @@
 | 中 | **攻撃者入力のユーザーIDを無加工で記録**。制御文字によるログ行偽装・巨大文字列・PII混入が可能 | `sanitizeAttemptedUserId`で制御文字を除去し64文字で切り詰め。併せて`LoginRequest.userId`に`@Size(max=100)`を追加(形式チェックではなく長さのみのため、アカウント存在有無は漏れない)。実値での検証テストを追加 |
 | 中 | **行形式では監査フィールドが出力されない**。既定パターンが`%kvp`を含まないため`auditEvent`等が失われる | `logging.pattern.console`を上書きし、行形式でも`%kvp`と`requestId`を出力。実行ログで`auditEvent="LOGIN_FAILED" attemptedUserId="..." requestId=...`が出ることを確認済み |
 
-### 追加したテスト(22件)
+### 追加したテスト(フェーズ12時点22件 → 後日追加を含め30件)
 
 | テストクラス | 件数 | 内容 |
 |---|---|---|
-| `AuthRateLimiterTest` | 10 | 仮想時計を使った単体テスト。上限までは通す/超過で拒否/ブロック解除/ウィンドウ跨ぎで累積しない/成功でリセット/キー分離/ブロック延長/**64スレッド同時実行でも上限を超えない**/**キー数が上限以下に保たれる** |
+| `AuthRateLimiterTest` | 13 | 仮想時計を使った単体テスト。上限までは通す/超過で拒否/ブロック解除/ウィンドウ跨ぎで累積しない/成功でリセット/キー分離/ブロック延長/**64スレッド同時実行でも上限を超えない**/**キー数が上限以下に保たれる** |
 | `LoginRateLimitIntegrationTest` | 7 | HTTP経由。429と `Retry-After`/ブロック中は正しいパスワードでも拒否/成功でリセット/別IPは巻き込まない/存在しないユーザーIDにも効く/**`X-Forwarded-For`偽装で回避できない**/**巨大なユーザーIDは入口で弾く** |
+| `SignupRateLimitIntegrationTest` | 5 | **公開デモ化に伴う後日追加**(本フェーズ時点では新規登録にレート制限が無かった)。HTTP経由。429と `Retry-After`/**ユーザーIDを毎回変えても回避できない**/別IPは巻き込まない/`X-Forwarded-For`偽装で回避できない/登録失敗も枠を消費する |
 | `AccessLogFieldsIntegrationTest` | 4 | Logbackの`ListAppender`で実ログを捕捉。認証済みで`userId`が載る/未認証ではnull/認可拒否の監査フィールドとWARNレベル/攻撃者入力のサニタイズ |
 | `AuditLoggerRedactionTest` | 1 | 監査ログAPIが本文・認証情報を受け取る引数を持たないことをリフレクションで検査 |
 

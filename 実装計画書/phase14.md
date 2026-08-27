@@ -45,18 +45,35 @@ Renderが自動注入する`DATABASE_URL`(`postgresql://...`形式)とは非互�
 `docs/インフラ構成書.md` §5参照)。**Render PostgreSQLダッシュボードの個別接続情報から手動で組み立てて
 個別環境変数として設定する**運用で対応する。
 
+> **この節の位置づけ**: 初回セットアップ時に「何を設定すべきか」を列挙した**手順メモ**であり、実施記録ではない。
+> **実機デプロイ自体は2026-08-23に完了している**(公開URL: https://chatspace-ydxk.onrender.com 、稼働中)。
+> 下のチェックボックスは、**実機で個別に検証が取れた項目にのみ**印を付けている(未チェック=未設定、ではない)。
+> 実際のデプロイ実績の記録は`.plans/render-deploy-handoff.md` §7(Git管理対象外)を参照。
+>
+> **「動いているから設定済み」と推論してよい項目とそうでない項目がある**(レビュー指摘対応)。DB接続・
+> `JWT_SECRET`・`WEB_ORIGIN`・R2関連は、未設定ならアプリの起動やログイン・添付ファイル・WebSocketが
+> そもそも失敗するため、稼働している事実から設定済みと判断できる。一方**`COOKIE_SECURE`と`SWAGGER_ENABLED`は
+> 既定値がそれぞれ`false`・`true`という「安全側でない」値で、未設定のままでもアプリは正常に動作してしまう**
+> (`application.yml`参照)。この2項目は稼働状況からは判断できないため、実機のレスポンスを直接検証した。
+
 Render Web Serviceへ初回設定するチェックリスト:
 
-- [ ] ビルド方式: Docker(リポジトリルートの`Dockerfile`)を選択
+- [x] ビルド方式: Docker(リポジトリルートの`Dockerfile`)を選択(2026-08-26、Renderダッシュボードのサービス画面に`Docker`表示を確認)
 - [ ] `DATABASE_URL_JDBC` / `DATABASE_USERNAME` / `DATABASE_PASSWORD`(手動組み立て)
 - [ ] `JWT_SECRET`(Renderのシークレット管理)
 - [ ] `WEB_ORIGIN=https://<実際のRenderサービスURL>`
-- [ ] `COOKIE_SECURE=true`
+- [x] `COOKIE_SECURE=true`(2026-08-26、本番`/auth/login`のレスポンスヘッダが
+      `Set-Cookie: chatspace_token=...; Path=/; Max-Age=604800; Secure; HttpOnly; SameSite=Lax`
+      であることを確認。**既定値が`false`(Secure属性なし)であり、未設定でもアプリは正常動作してしまうため、
+      稼働している事実からは設定の有無を判断できない項目**。実機のレスポンスヘッダで直接検証した)
 - [ ] `STORAGE_TYPE=s3` + R2関連5項目(`STORAGE_S3_BUCKET`/`STORAGE_S3_ENDPOINT`/`STORAGE_S3_REGION`/
       `STORAGE_S3_ACCESS_KEY_ID`/`STORAGE_S3_SECRET_ACCESS_KEY`。R2はバケット限定の最小権限トークンを発行して使う)
-- [ ] `SWAGGER_ENABLED=false`
-- [ ] `LOG_STRUCTURED_FORMAT=logstash`
-- [ ] Health Check Path: `/health`
+- [x] `SWAGGER_ENABLED=false`(2026-08-26、本番の`/swagger-ui.html`・`/swagger-ui/index.html`・
+      `/v3/api-docs`がいずれも404を返すことを確認。**既定値が`true`(公開)であり、未設定でもアプリは
+      正常動作してしまうため、稼働している事実からは設定の有無を判断できない項目**。実機への
+      HTTPリクエストで直接検証した)
+- [x] `LOG_STRUCTURED_FORMAT=logstash`(2026-08-26、実機`chatspace`サービスで設定済み・JSON出力を確認。詳細は`docs/ログ運用設計書.md` §4)
+- [x] Health Check Path: `/health`(2026-08-26、転送先のNew Relic上で`{"path":"/health","status":200}`のアクセスログを確認)
 - [ ] 初回は手動デプロイでビルド所要時間を計測する(Gradle+pnpmの重いビルドがRender無料枠のビルド時間内に
       収まるか確認。収まらない場合は別途対応を検討)
 

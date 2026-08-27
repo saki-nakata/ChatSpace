@@ -45,8 +45,21 @@ public class AuthController {
     this.cookieSecure = cookieSecure;
   }
 
+  /**
+   * 新規登録。公開URLで誰でも登録できるため、自動化されたアカウント大量生成(およびそれに続く 添付アップロードの濫用)を防ぐ目的で、クライアントIP単位のレート制限を掛ける。
+   *
+   * <p>ログインと異なりキーにユーザーIDを含めない理由は{@link ClientAddress#signupKey(String)}を参照。
+   */
   @PostMapping("/signup")
-  public ResponseEntity<UserResponse> signup(@Valid @RequestBody SignupRequest request) {
+  public ResponseEntity<UserResponse> signup(
+      @Valid @RequestBody SignupRequest request, HttpServletRequest httpRequest) {
+    String remoteAddress = ClientAddress.of(httpRequest);
+    try {
+      authRateLimiter.acquireSignupAttempt(ClientAddress.signupKey(remoteAddress));
+    } catch (TooManyRequestsException ex) {
+      auditLogger.signupRateLimited(request.userId(), remoteAddress);
+      throw ex;
+    }
     AuthResult result = authService.signup(request);
     return ResponseEntity.status(HttpStatus.CREATED)
         .header(HttpHeaders.SET_COOKIE, buildCookie(result.token()).toString())
