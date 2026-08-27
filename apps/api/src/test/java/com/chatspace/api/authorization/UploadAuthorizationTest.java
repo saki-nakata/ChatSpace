@@ -117,6 +117,67 @@ class UploadAuthorizationTest extends AbstractIntegrationTest {
         .andExpect(status().isNotFound());
   }
 
+  /** メッセージ削除後は、投稿者・他メンバーとも既知のstorageKeyで添付を取得できなくなること(利用者からの指摘対応)。 */
+  @Test
+  void serve_afterMessageDeleted_returnsNotFoundForAuthorAndOtherMembers() throws Exception {
+    User owner = fixtures.createUser();
+    Workspace workspace = fixtures.createWorkspaceWithOwner(owner);
+    User member = fixtures.createUser();
+    fixtures.addWorkspaceMember(workspace, member, WorkspaceRole.MEMBER);
+    Channel channel = fixtures.createChannel(workspace, ChannelType.PUBLIC, owner, member);
+
+    Uploaded uploaded = upload(member);
+    MvcResult postResult =
+        mockMvc
+            .perform(
+                post(
+                        "/workspaces/{workspaceId}/channels/{channelId}/messages",
+                        workspace.getId(),
+                        channel.getId())
+                    .cookie(fixtures.authCookie(member))
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(
+                        objectMapper.writeValueAsString(
+                            Map.of(
+                                "body",
+                                "画像を送ります",
+                                "attachmentIds",
+                                List.of(uploaded.attachmentId())))))
+            .andExpect(status().isCreated())
+            .andReturn();
+    UUID messageId =
+        UUID.fromString(
+            objectMapper
+                .readTree(postResult.getResponse().getContentAsString())
+                .get("id")
+                .asText());
+
+    // 削除前は取得できる
+    mockMvc
+        .perform(
+            get("/uploads/{storageKey}", uploaded.storageKey()).cookie(fixtures.authCookie(owner)))
+        .andExpect(status().isOk());
+
+    mockMvc
+        .perform(
+            delete(
+                    "/workspaces/{workspaceId}/channels/{channelId}/messages/{messageId}",
+                    workspace.getId(),
+                    channel.getId(),
+                    messageId)
+                .cookie(fixtures.authCookie(member)))
+        .andExpect(status().isNoContent());
+
+    mockMvc
+        .perform(
+            get("/uploads/{storageKey}", uploaded.storageKey()).cookie(fixtures.authCookie(member)))
+        .andExpect(status().isNotFound());
+    mockMvc
+        .perform(
+            get("/uploads/{storageKey}", uploaded.storageKey()).cookie(fixtures.authCookie(owner)))
+        .andExpect(status().isNotFound());
+  }
+
   /** 存在しない(未アップロードの)storageKeyは404で、パス構造の不正も同様に404で拒否されること。 */
   @Test
   void serve_unknownOrMalformedStorageKey_returnsNotFound() throws Exception {

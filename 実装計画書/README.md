@@ -24,7 +24,7 @@ Node.js/Hono/Socket.IO/Prisma/SQLite のプロトタイプを土台に、Java/Sp
 | [フェーズ11](phase11.md) | 機能同等性チェックリストの最終確認・旧実装削除とリネーム | ✅ 完了(`apps/api-java`→`apps/api`、`apps/web-next`→`apps/web`。未実装だった認可テスト7件も追加) |
 | [フェーズ12](phase12.md) | 仕上げ(レート制限、SameSite/CSRF再確認、ログ、情報漏洩監査) | ✅ 完了(SameSite/CSRFはフェーズ14で本番ドメイン確定後に再確認し、同一オリジン構成のため追加変更不要と結論。`docs/インフラ構成書.md`§10参照) |
 | [フェーズ13](phase13.md) | 添付ファイルのオブジェクトストレージ化(Cloudflare R2) | ✅ 実装完了 |
-| [フェーズ14](phase14.md) | Renderデプロイ本体(Dockerfile・SPA配信・CD) | ✅ 実装完了(実機デプロイ・CD有効化は別途実施) |
+| [フェーズ14](phase14.md) | Renderデプロイ本体(Dockerfile・SPA配信・CD) | ✅ 完了(実機デプロイ2026-08-23、CD有効化済み[Auto-Deploy: After CI Checks Pass]。環境変数チェックリストの実機確認も完了、`phase14.md`参照) |
 | [フェーズ15](phase15.md) | (任意)パフォーマンステスト | ✅ 実施済み(2026-08-25、**ローカル環境限定**。Render本番相当の性能を示すものではない) |
 
 ## レビュー対応

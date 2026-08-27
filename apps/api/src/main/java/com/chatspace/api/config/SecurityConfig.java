@@ -12,6 +12,12 @@ import org.springframework.security.config.annotation.web.configurers.AbstractHt
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.security.web.header.writers.ContentSecurityPolicyHeaderWriter;
+import org.springframework.security.web.header.writers.DelegatingRequestMatcherHeaderWriter;
+import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
+import org.springframework.security.web.util.matcher.NegatedRequestMatcher;
+import org.springframework.security.web.util.matcher.OrRequestMatcher;
+import org.springframework.security.web.util.matcher.RequestMatcher;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
@@ -40,6 +46,17 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 @Configuration
 @EnableWebSecurity
 public class SecurityConfig {
+
+  /**
+   * SPA(同一オリジン配信・外部スクリプト/フォント/画像を一切使わない構成)向けの多層防御(XSSの保険)。 添付ファイル・アバターも{@code
+   * /uploads/**}経由の自ドメイン配信のみで、Markdown本文の{@code img}タグはDOMPurify設定で
+   * 意図的に不許可(前記載の通りトラッキングピクセル対策)なため、`'self'`のみで機能を壊さず適用できる。 STOMPの{@code connect-src}はCSPの仕様上{@code
+   * 'self'}がws(s)への同一オリジン接続も許可するため追加指定は不要。
+   */
+  private static final String CONTENT_SECURITY_POLICY =
+      "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; "
+          + "font-src 'self'; connect-src 'self'; media-src 'self'; object-src 'none'; "
+          + "base-uri 'self'; form-action 'self'; frame-ancestors 'none'";
 
   private final JwtAuthenticationFilter jwtAuthenticationFilter;
   private final String webOrigin;
@@ -81,8 +98,24 @@ public class SecurityConfig {
                 exceptions.authenticationEntryPoint(
                     (request, response, authException) ->
                         response.sendError(HttpServletResponse.SC_UNAUTHORIZED)))
-        .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
+        .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
+        .headers(headers -> headers.addHeaderWriter(contentSecurityPolicyHeaderWriter()));
     return http.build();
+  }
+
+  /**
+   * Swagger UI(webjar同梱のindex.htmlがインラインscriptでUIを初期化する)には適用しない。開発時のみ有効な 補助ツールであり、本番は{@code
+   * SWAGGER_ENABLED=false}でエンドポイント自体が404になるため除外の影響は無い。
+   */
+  private DelegatingRequestMatcherHeaderWriter contentSecurityPolicyHeaderWriter() {
+    RequestMatcher swaggerPaths =
+        new OrRequestMatcher(
+            PathPatternRequestMatcher.pathPattern("/swagger-ui/**"),
+            PathPatternRequestMatcher.pathPattern("/swagger-ui.html"),
+            PathPatternRequestMatcher.pathPattern("/v3/api-docs/**"));
+    return new DelegatingRequestMatcherHeaderWriter(
+        new NegatedRequestMatcher(swaggerPaths),
+        new ContentSecurityPolicyHeaderWriter(CONTENT_SECURITY_POLICY));
   }
 
   @Bean
