@@ -52,10 +52,15 @@ public class SecurityConfig {
    * /uploads/**}経由の自ドメイン配信のみで、Markdown本文の{@code img}タグはDOMPurify設定で
    * 意図的に不許可(前記載の通りトラッキングピクセル対策)なため、`'self'`のみで機能を壊さず適用できる。 STOMPの{@code connect-src}はCSPの仕様上{@code
    * 'self'}がws(s)への同一オリジン接続も許可するため追加指定は不要。
+   *
+   * <p>{@code img-src}/{@code media-src}には{@code blob:}も含める(レビュー指摘対応)。送信前の添付プレビュー({@code
+   * MessageComposer.tsx})は{@code URL.createObjectURL()}が返す{@code blob:}URLを{@code img}/{@code
+   * video}の{@code src}に使っており、同一オリジンのJSが生成したものでも{@code blob:}スキームはCSPの{@code 'self'}に含まれないため、
+   * これが無いとプレビューがブロックされる。
    */
   private static final String CONTENT_SECURITY_POLICY =
-      "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; "
-          + "font-src 'self'; connect-src 'self'; media-src 'self'; object-src 'none'; "
+      "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob:; "
+          + "font-src 'self'; connect-src 'self'; media-src 'self' blob:; object-src 'none'; "
           + "base-uri 'self'; form-action 'self'; frame-ancestors 'none'";
 
   private final JwtAuthenticationFilter jwtAuthenticationFilter;

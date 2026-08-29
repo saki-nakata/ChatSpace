@@ -22,10 +22,10 @@ class ContentSecurityPolicyTest extends AbstractIntegrationTest {
             header()
                 .string(
                     "Content-Security-Policy",
-                    "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; "
-                        + "font-src 'self'; connect-src 'self'; media-src 'self'; object-src"
-                        + " 'none'; base-uri 'self'; form-action 'self'; frame-ancestors"
-                        + " 'none'"));
+                    "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'"
+                        + " blob:; font-src 'self'; connect-src 'self'; media-src 'self' blob:;"
+                        + " object-src 'none'; base-uri 'self'; form-action 'self';"
+                        + " frame-ancestors 'none'"));
   }
 
   @Test
