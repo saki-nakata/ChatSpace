@@ -150,6 +150,11 @@ public class UploadService {
       return;
     }
     Message message = messageRepository.findById(messageId).orElseThrow(this::notFound);
+    if (message.isDeleted()) {
+      // メッセージが削除された時点でUI・APIからは添付を秘匿しているため、保存済みURLを知っている
+      // 利用者にだけ本文を返し続けるのは削除の期待に反する(利用者からの指摘対応)
+      throw notFound();
+    }
     if (message.getChannelId() != null) {
       channelAuthorizationService.requireChannelMember(message.getChannelId(), callerId, null);
     } else {

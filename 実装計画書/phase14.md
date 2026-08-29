@@ -1,6 +1,6 @@
 ## フェーズ14 — Renderデプロイ本体
 
-**状態: ✅ 実装完了**(実機デプロイ・CD有効化は「Render初回セットアップ」節のDoDを参照)
+**状態: ✅ 完了**(実機デプロイ2026-08-23、CD有効化済み。環境変数チェックリストの実機確認も完了。詳細は「Render初回セットアップ」節を参照。なお「撤収手順チェックリスト」は公開終了時[2026-09-22予定]に実施する項目のため未チェックのまま残している)
 
 Renderへのデプロイ方針確定(2026-08-22)に伴い新設したフェーズ。旧フェーズ14(パフォーマンステスト)は
 [phase15.md](phase15.md)として繰り下げた。**フェーズ13(添付ファイルのオブジェクトストレージ化)の完了が
@@ -59,23 +59,26 @@ Renderが自動注入する`DATABASE_URL`(`postgresql://...`形式)とは非互�
 Render Web Serviceへ初回設定するチェックリスト:
 
 - [x] ビルド方式: Docker(リポジトリルートの`Dockerfile`)を選択(2026-08-26、Renderダッシュボードのサービス画面に`Docker`表示を確認)
-- [ ] `DATABASE_URL_JDBC` / `DATABASE_USERNAME` / `DATABASE_PASSWORD`(手動組み立て)
-- [ ] `JWT_SECRET`(Renderのシークレット管理)
-- [ ] `WEB_ORIGIN=https://<実際のRenderサービスURL>`
+- [x] `DATABASE_URL_JDBC` / `DATABASE_USERNAME` / `DATABASE_PASSWORD`(手動組み立て。2026-08-28、
+      Renderダッシュボードの当該Web Service「Environment」タブでキーの存在を確認)
+- [x] `JWT_SECRET`(Renderのシークレット管理。2026-08-28、同上の「Environment」タブでキーの存在を確認)
+- [x] `WEB_ORIGIN=https://<実際のRenderサービスURL>`(2026-08-28、同上の「Environment」タブでキーの存在を確認)
 - [x] `COOKIE_SECURE=true`(2026-08-26、本番`/auth/login`のレスポンスヘッダが
       `Set-Cookie: chatspace_token=...; Path=/; Max-Age=604800; Secure; HttpOnly; SameSite=Lax`
       であることを確認。**既定値が`false`(Secure属性なし)であり、未設定でもアプリは正常動作してしまうため、
       稼働している事実からは設定の有無を判断できない項目**。実機のレスポンスヘッダで直接検証した)
-- [ ] `STORAGE_TYPE=s3` + R2関連5項目(`STORAGE_S3_BUCKET`/`STORAGE_S3_ENDPOINT`/`STORAGE_S3_REGION`/
-      `STORAGE_S3_ACCESS_KEY_ID`/`STORAGE_S3_SECRET_ACCESS_KEY`。R2はバケット限定の最小権限トークンを発行して使う)
+- [x] `STORAGE_TYPE=s3` + R2関連5項目(`STORAGE_S3_BUCKET`/`STORAGE_S3_ENDPOINT`/`STORAGE_S3_REGION`/
+      `STORAGE_S3_ACCESS_KEY_ID`/`STORAGE_S3_SECRET_ACCESS_KEY`。R2はバケット限定の最小権限トークンを発行して使う。
+      2026-08-28、Renderダッシュボードの「Environment」タブで`STORAGE_TYPE=s3`および5項目のキーの存在を確認)
 - [x] `SWAGGER_ENABLED=false`(2026-08-26、本番の`/swagger-ui.html`・`/swagger-ui/index.html`・
       `/v3/api-docs`がいずれも404を返すことを確認。**既定値が`true`(公開)であり、未設定でもアプリは
       正常動作してしまうため、稼働している事実からは設定の有無を判断できない項目**。実機への
       HTTPリクエストで直接検証した)
 - [x] `LOG_STRUCTURED_FORMAT=logstash`(2026-08-26、実機`chatspace`サービスで設定済み・JSON出力を確認。詳細は`docs/ログ運用設計書.md` §4)
 - [x] Health Check Path: `/health`(2026-08-26、転送先のNew Relic上で`{"path":"/health","status":200}`のアクセスログを確認)
-- [ ] 初回は手動デプロイでビルド所要時間を計測する(Gradle+pnpmの重いビルドがRender無料枠のビルド時間内に
-      収まるか確認。収まらない場合は別途対応を検討)
+- [x] 初回は手動デプロイでビルド所要時間を計測する(Gradle+pnpmの重いビルドがRender無料枠のビルド時間内に
+      収まるか確認。収まらない場合は別途対応を検討。2026-08-28、Renderダッシュボードの「Events」で
+      2026-08-27 20:57(JST)の`Auto-Deploy`(PR #22マージ契機、コミット`724ef87`)のビルド所要時間`5m24s`を確認)
 
 ### CDの有効化(R2移行完了が前提条件)
 
