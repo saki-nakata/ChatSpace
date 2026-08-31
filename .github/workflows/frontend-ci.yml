@@ -60,7 +60,7 @@ jobs:
       # STOMP宛先契約テスト(AUTH-N18)がapps/apiの出力するJSONと突き合わせるため、
       # フロントエンドのテストを実行する前にバックエンドをビルドしてJSONを生成しておく
       - name: Set up JDK 21 (for STOMP destinations contract test)
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: "21"
