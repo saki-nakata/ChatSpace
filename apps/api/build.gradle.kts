@@ -4,7 +4,7 @@ plugins {
     java
     id("org.springframework.boot") version "4.1.1"
     id("io.spring.dependency-management") version "1.1.7"
-    id("com.diffplug.spotless") version "8.10.0"
+    id("com.diffplug.spotless") version "8.10.2"
 }
 
 group = "com.chatspace"
@@ -39,13 +39,13 @@ dependencies {
     implementation("org.flywaydb:flyway-database-postgresql")
 
     // JWT発行・検証(計画書§3: OAuth2 Resource Server自動構成は使わず、Nimbus JOSE+JWTを直接使う)
-    implementation("com.nimbusds:nimbus-jose-jwt:10.9.1")
+    implementation("com.nimbusds:nimbus-jose-jwt:10.10")
 
     // OpenAPI自動生成(計画書§7: packages/shared廃止の代替。Spring Boot 4.1系に対応するv3.1.0を使用)
-    implementation("org.springdoc:springdoc-openapi-starter-webmvc-ui:3.1.0")
+    implementation("org.springdoc:springdoc-openapi-starter-webmvc-ui:3.1.1")
 
     // 添付ファイルのオブジェクトストレージ化(フェーズ13、インフラ構成書§7.1)。Cloudflare R2はS3互換APIのためAWS SDK v2を使う
-    implementation("software.amazon.awssdk:s3:2.54.2")
+    implementation("software.amazon.awssdk:s3:2.55.0")
 
     runtimeOnly("org.postgresql:postgresql")
     // ローカル開発時のみ docker-compose.yml を自動起動する(本番ビルドには含めない)
